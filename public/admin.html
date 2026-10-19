@@ -25,11 +25,12 @@
     </section>
 
     <section id="dashboard" class="hidden">
-      <header class="top"><div class="brand"><div class="mark">H</div><div><h1>HSHO Player Admin</h1><p>ประวัติการใช้ไอเท็ม · แสดงล่าสุดสูงสุด 100 รายการ</p></div></div><button id="logout" class="secondary">ออกจากระบบ</button></header>
+      <header class="top"><div class="brand"><div class="mark">H</div><div><h1>HSHO Player Admin</h1><p>ผู้เล่น Whitelist และประวัติการใช้ไอเท็ม</p></div></div><button id="logout" class="secondary">ออกจากระบบ</button></header>
       <div class="card status-card"><div><h2>สถานะ Launcher / เซิร์ฟเวอร์</h2><p>เมื่อปิด Launcher ของผู้เล่นจะแสดงหน้า Server is closed พร้อมเวลานับถอยหลัง</p><div class="status-pill"><span id="statusDot" class="dot"></span><span id="statusText">กำลังอ่านสถานะ…</span></div></div><div class="status-controls"><label class="muted" for="closeMinutes">ปิดนาน (นาที)</label><input id="closeMinutes" type="number" min="1" max="10080" value="60" style="width:95px;background:#111827;border:1px solid #39445e;border-radius:9px;color:#fff;padding:10px"><button id="toggleLauncher">กำลังโหลด…</button></div></div>
       <div class="card">
-        <div class="toolbar"><input id="search" class="search" type="search" placeholder="ค้นหาด้วย Steam ID หรือชื่อไอเท็ม"><span id="count" class="count"></span><button id="refreshUsage" class="secondary">รีเฟรชประวัติ</button><button id="syncWhitelist" class="secondary">ซิงก์ Whitelist</button></div>
-        <div class="table-wrap"><table><thead><tr><th>Steam ID</th><th>Discord Name</th><th>ไอเท็มที่ใช้</th><th>วันและเวลาที่ใช้</th><th>สถานะแบน</th><th>จัดการ</th></tr></thead><tbody id="rows"></tbody></table><div id="empty" class="empty hidden">ยังไม่มีประวัติการใช้ไอเท็ม · ต้องเชื่อมให้เกม/เซิร์ฟเวอร์ส่งเหตุการณ์เข้ามา</div></div>
+        <div class="toolbar"><button id="playersTab" class="view-tab" aria-pressed="true">ผู้เล่น Whitelist</button><button id="usageTab" class="view-tab secondary" aria-pressed="false">ประวัติใช้ไอเท็ม</button></div>
+        <div class="toolbar"><input id="search" class="search" type="search" placeholder="ค้นหาด้วย Steam ID หรือ Discord Name"><span id="count" class="count"></span><button id="refreshUsage" class="secondary">รีเฟรช</button><button id="syncWhitelist" class="secondary">ซิงก์ Whitelist</button></div>
+        <div class="table-wrap"><table><thead id="tableHead"></thead><tbody id="rows"></tbody></table><div id="empty" class="empty hidden"></div></div>
         <div class="toolbar" style="justify-content:flex-end;margin-top:14px"><button id="previousPage" class="secondary">ก่อนหน้า</button><span id="pageInfo" class="count">หน้า 1</span><button id="nextPage" class="secondary">ถัดไป</button></div>
         <p id="notice" class="notice" role="status"></p>
       </div>
@@ -41,6 +42,7 @@
     let csrf = '';
     let searchTimer;
     let currentPage = 1;
+    let currentView = 'players';
     const numberFmt = new Intl.NumberFormat('th-TH');
 
     async function api(url, options = {}) {
@@ -62,21 +64,35 @@
     async function loadPlayers(page = currentPage) {
       tell('กำลังโหลดข้อมูล…');
       try {
-        const result = await api(`/admin/api/item-usage?page=${page}&q=${encodeURIComponent($('search').value.trim())}`);
+        const endpoint = currentView === 'players' ? '/admin/api/players' : '/admin/api/item-usage';
+        const result = await api(`${endpoint}?page=${page}&q=${encodeURIComponent($('search').value.trim())}`);
+        const entries = currentView === 'players' ? result.players : result.events;
         currentPage = result.page;
+        const columns = currentView === 'players'
+          ? ['Steam ID', 'Discord Name', 'สถานะแบน', 'จัดการ']
+          : ['Steam ID', 'Discord Name', 'ไอเท็มที่ใช้', 'วันและเวลาที่ใช้', 'สถานะแบน', 'จัดการ'];
+        $('tableHead').replaceChildren(Object.assign(document.createElement('tr'), { innerHTML: columns.map(name => `<th>${name}</th>`).join('') }));
+        $('search').placeholder = currentView === 'players' ? 'ค้นหาด้วย Steam ID หรือ Discord Name' : 'ค้นหาด้วย Steam ID หรือชื่อไอเท็ม';
+        $('syncWhitelist').classList.toggle('hidden', currentView !== 'players');
         $('rows').replaceChildren();
         const first = result.total ? (result.page - 1) * result.pageSize + 1 : 0;
         const last = Math.min(result.page * result.pageSize, result.total);
-        $('count').textContent = `${numberFmt.format(first)}–${numberFmt.format(last)} จาก ${numberFmt.format(result.total)} เหตุการณ์`;
+        const unit = currentView === 'players' ? 'ผู้เล่น' : 'เหตุการณ์';
+        $('count').textContent = `${numberFmt.format(first)}–${numberFmt.format(last)} จาก ${numberFmt.format(result.total)} ${unit}`;
         $('pageInfo').textContent = `หน้า ${numberFmt.format(result.page)}`;
         $('previousPage').disabled = result.page <= 1;
         $('nextPage').disabled = !result.hasMore;
-        $('empty').classList.toggle('hidden', result.events.length > 0);
-        for (const event of result.events) {
+        $('empty').textContent = currentView === 'players'
+          ? 'ยังไม่มีผู้เล่น · กด “ซิงก์ Whitelist” เพื่อดึงข้อมูลจาก Google Sheets'
+          : 'ยังไม่มีประวัติการใช้ไอเท็ม · ต้องเชื่อมให้เกม/เซิร์ฟเวอร์ส่งเหตุการณ์เข้ามา';
+        $('empty').classList.toggle('hidden', entries.length > 0);
+        for (const event of entries) {
           const tr = document.createElement('tr');
-          cell(tr, event.steamId, 'mono'); cell(tr, event.discordName || '—');
-          cell(tr, `${event.itemName}${event.itemId ? ` (${event.itemId})` : ''} × ${numberFmt.format(event.quantity)}`);
-          cell(tr, new Date(event.usedAt).toLocaleString('th-TH'));
+          cell(tr, event.steamId, 'mono'); cell(tr, currentView === 'players' ? (event.discordTag || event.discordId || '—') : (event.discordName || '—'));
+          if (currentView === 'usage') {
+            cell(tr, `${event.itemName}${event.itemId ? ` (${event.itemId})` : ''} × ${numberFmt.format(event.quantity)}`);
+            cell(tr, new Date(event.usedAt).toLocaleString('th-TH'));
+          }
           const until = event.bannedUntil ? new Date(event.bannedUntil) : null;
           const activeBan = event.isBanned && (!until || until.getTime() > Date.now());
           const banText = activeBan ? (until ? `แบนถึง ${until.toLocaleString('th-TH')}` : 'แบนถาวร') : (event.isBanned ? 'หมดเวลาแบน' : 'ปกติ');
@@ -150,11 +166,21 @@
       try {
         const result = await api('/admin/api/whitelist/sync', { method: 'POST', body: '{}' });
         tell(`ซิงก์แล้ว ${numberFmt.format(result.synced)} คน${result.skipped ? ` · ข้ามข้อมูลไม่ถูกต้อง ${numberFmt.format(result.skipped)} แถว` : ''}`, true);
-        await loadPlayers();
+        setView('players'); await loadPlayers(1);
       } catch (error) { tell(error.message); }
       finally { button.disabled = false; }
     });
     $('refreshUsage').addEventListener('click', loadPlayers);
+    function setView(view) {
+      currentView = view; currentPage = 1;
+      $('playersTab').setAttribute('aria-pressed', String(view === 'players'));
+      $('usageTab').setAttribute('aria-pressed', String(view === 'usage'));
+      $('playersTab').classList.toggle('secondary', view !== 'players');
+      $('usageTab').classList.toggle('secondary', view !== 'usage');
+      $('search').value = '';
+    }
+    $('playersTab').addEventListener('click', () => { setView('players'); loadPlayers(1); });
+    $('usageTab').addEventListener('click', () => { setView('usage'); loadPlayers(1); });
     $('search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => loadPlayers(1), 250); });
     $('previousPage').addEventListener('click', () => { if (currentPage > 1) loadPlayers(currentPage - 1); });
     $('nextPage').addEventListener('click', () => loadPlayers(currentPage + 1));
