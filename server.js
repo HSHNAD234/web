@@ -197,6 +197,7 @@ app.get('/admin/api/players', adminReady, requireAdmin, async (req, res) => {
         const page = Math.max(1, Math.min(1000000, Number.parseInt(req.query.page, 10) || 1));
         const pageSize = 100;
         let request = db().from('players').select('steam_id,display_name,discord_id,discord_tag,whitelisted_at,is_banned,banned_until,ban_reason,created_at,updated_at', { count: 'exact' })
+            .eq('is_whitelisted', true)
             .order('updated_at', { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
         if (query) {
             const safeQuery = query.replace(/[^\p{L}\p{N}_ -]/gu, '').trim();
@@ -298,7 +299,7 @@ app.post('/admin/api/whitelist/sync', adminReady, requireAdmin, requireAdminCsrf
         }
 
         stage = 'บันทึกลง Supabase';
-        const unique = new Map();
+        const byDiscordId = new Map();
         let skipped = 0;
         for (const row of payload.data) {
             const steamId = String(row?.steamId || '').trim();
@@ -307,20 +308,38 @@ app.post('/admin/api/whitelist/sync', adminReady, requireAdmin, requireAdminCsrf
                 skipped += 1;
                 continue;
             }
-            unique.set(steamId, {
+            const discordId = String(row.discordId || '').trim() || null;
+            const record = {
                 steam_id: steamId,
                 display_name: displayName,
-                discord_id: String(row.discordId || '').trim() || null,
+                discord_id: discordId,
                 discord_tag: String(row.discordTag || '').trim() || null,
                 whitelisted_at: String(row.timestamp || '').trim() || null,
+                is_whitelisted: true,
                 updated_at: new Date().toISOString()
-            });
+            };
+            // A Discord account can only own one whitelist Steam ID. When older
+            // duplicate rows exist, the last row in the sheet is authoritative.
+            const key = discordId ? `discord:${discordId}` : `steam:${steamId}`;
+            byDiscordId.set(key, record);
         }
-        const records = [...unique.values()];
+        const recordsBySteamId = new Map([...byDiscordId.values()].map(record => [record.steam_id, record]));
+        const records = [...recordsBySteamId.values()];
         for (let offset = 0; offset < records.length; offset += 200) {
             const { error } = await db().from('players').upsert(records.slice(offset, offset + 200), {
                 onConflict: 'steam_id', ignoreDuplicates: false
             });
+            if (error) throw error;
+        }
+
+        // Keep former duplicate registrations and their item history in the DB,
+        // but hide them from the whitelist and ban lookup.
+        for (const record of records) {
+            if (!record.discord_id) continue;
+            const { error } = await db().from('players').update({ is_whitelisted: false })
+                .eq('discord_id', record.discord_id)
+                .neq('steam_id', record.steam_id)
+                .eq('is_whitelisted', true);
             if (error) throw error;
         }
         res.json({ synced: records.length, skipped });
@@ -489,7 +508,7 @@ app.get('/live/player/ban-status', async (req, res) => {
 
         const { data: player, error } = await db().from('players')
             .select('steam_id,is_banned,banned_until,ban_reason')
-            .eq('discord_id', discordId).limit(1).maybeSingle();
+            .eq('discord_id', discordId).eq('is_whitelisted', true).limit(1).maybeSingle();
         if (error) throw error;
         if (!player) return res.json({ found: false, isBanned: false });
 
