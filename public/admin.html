@@ -1,158 +1,29 @@
-<!doctype html>
-<html lang="th">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
-  <title>Player Admin</title>
-  <style>
-    :root{font-family:Inter,"Segoe UI",sans-serif;color:#edf2ff;background:#101522;font-synthesis:none}
-    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 12% 0,#25335c 0,transparent 45%),#101522}
-    button,input{font:inherit}button{cursor:pointer;border:0;border-radius:10px;padding:11px 16px;font-weight:650;color:#fff;background:#5865f2}button:hover{filter:brightness(1.1)}button.secondary{background:#293247}button.danger{background:#a83d54}
-    .wrap{max-width:1180px;margin:auto;padding:36px 22px}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:25px}.brand{display:flex;gap:13px;align-items:center}.mark{display:grid;place-items:center;width:46px;height:46px;border-radius:14px;background:#5865f2;font-size:20px;font-weight:800}.brand h1{font-size:21px;margin:0}.brand p{margin:4px 0 0;color:#aab4cc;font-size:13px}.card{background:rgba(24,31,48,.92);border:1px solid #313b52;border-radius:18px;padding:22px;box-shadow:0 18px 55px #05081166}.login{max-width:430px;margin:12vh auto}.login h2{margin-top:0}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:13px;color:#c6cfe2}.field input,.search{width:100%;background:#111827;border:1px solid #39445e;border-radius:9px;color:#fff;padding:11px 12px;outline:none}.field input:focus,.search:focus{border-color:#7883ff}.hidden{display:none!important}.toolbar{display:flex;gap:12px;align-items:center;margin-bottom:17px}.search{flex:1;min-width:150px}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:760px}th,td{text-align:left;padding:13px 11px;border-bottom:1px solid #30394e;font-size:14px}th{color:#aeb9d1;font-weight:600}.mono{font-family:Consolas,monospace;color:#b9c3ff}.actions{display:flex;gap:7px}.actions button{padding:8px 11px}.hint,.muted{color:#aab4cc;font-size:13px}.notice{min-height:22px;margin:12px 0 0;color:#ffb2bd;font-size:14px}.notice.ok{color:#7fe0b0}.modal{position:fixed;inset:0;background:#050811bb;display:grid;place-items:center;padding:15px}.modal .card{width:min(620px,100%)}.grid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}.form-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:18px}.empty{text-align:center;padding:32px;color:#aab4cc}.count{white-space:nowrap;color:#aab4cc;font-size:13px}
-    .status-card{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:16px}.status-card h2{font-size:16px;margin:0 0 6px}.status-card p{margin:0;color:#aab4cc;font-size:13px;line-height:1.5}.status-pill{display:inline-flex;align-items:center;gap:8px;font-weight:700;margin-top:10px}.dot{width:9px;height:9px;border-radius:50%;background:#f06b79}.dot.online{background:#50d890}.status-controls{display:flex;align-items:center;gap:12px;flex-shrink:0}
-    @media(max-width:650px){.wrap{padding:20px 13px}.card{padding:16px}.top{align-items:flex-start}.toolbar{flex-wrap:wrap}.toolbar .search{flex-basis:100%}.grid{grid-template-columns:1fr}.brand h1{font-size:18px}.status-card{align-items:flex-start;flex-direction:column}}
-  </style>
-</head>
-<body>
-  <main class="wrap">
-    <section id="login" class="card login">
-      <div class="brand"><div class="mark">P</div><div><h1>Player Admin</h1><p>จัดการข้อมูลผู้เล่นในฐานข้อมูลของคุณ</p></div></div>
-      <form id="loginForm">
-        <div class="field"><label for="password">รหัสผ่านผู้ดูแล</label><input id="password" type="password" autocomplete="current-password" required></div>
-        <button type="submit" style="width:100%">เข้าสู่ระบบ</button><p id="loginNotice" class="notice" role="status"></p>
-      </form>
-    </section>
 
-    <section id="dashboard" class="hidden">
-      <header class="top"><div class="brand"><div class="mark">H</div><div><h1>HSHO Player Admin</h1><p>ประวัติการใช้ไอเท็ม · แสดงล่าสุดสูงสุด 100 รายการ</p></div></div><button id="logout" class="secondary">ออกจากระบบ</button></header>
-      <div class="card status-card"><div><h2>สถานะ Launcher / เซิร์ฟเวอร์</h2><p>เมื่อปิด Launcher ของผู้เล่นจะแสดงหน้า Server is closed พร้อมเวลานับถอยหลัง</p><div class="status-pill"><span id="statusDot" class="dot"></span><span id="statusText">กำลังอ่านสถานะ…</span></div></div><div class="status-controls"><label class="muted" for="closeMinutes">ปิดนาน (นาที)</label><input id="closeMinutes" type="number" min="1" max="10080" value="60" style="width:95px;background:#111827;border:1px solid #39445e;border-radius:9px;color:#fff;padding:10px"><button id="toggleLauncher">กำลังโหลด…</button></div></div>
-      <div class="card">
-        <div class="toolbar"><input id="search" class="search" type="search" placeholder="ค้นหาด้วย Steam ID หรือชื่อไอเท็ม"><span id="count" class="count"></span><button id="refreshUsage" class="secondary">รีเฟรชประวัติ</button><button id="syncWhitelist" class="secondary">ซิงก์ Whitelist</button></div>
         <div class="table-wrap"><table><thead><tr><th>Steam ID</th><th>Discord Name</th><th>ไอเท็มที่ใช้</th><th>วันและเวลาที่ใช้</th><th>สถานะแบน</th><th>จัดการ</th></tr></thead><tbody id="rows"></tbody></table><div id="empty" class="empty hidden">ยังไม่มีประวัติการใช้ไอเท็ม · ต้องเชื่อมให้เกม/เซิร์ฟเวอร์ส่งเหตุการณ์เข้ามา</div></div>
+        <div class="toolbar" style="justify-content:flex-end;margin-top:14px"><button id="previousPage" class="secondary">ก่อนหน้า</button><span id="pageInfo" class="count">หน้า 1</span><button id="nextPage" class="secondary">ถัดไป</button></div>
         <p id="notice" class="notice" role="status"></p>
-      </div>
-    </section>
-  </main>
-
-  <script>
-    const $ = (id) => document.getElementById(id);
-    let csrf = '';
     let searchTimer;
+    let currentPage = 1;
     const numberFmt = new Intl.NumberFormat('th-TH');
 
-    async function api(url, options = {}) {
-      const headers = { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) };
-      if (options.method && !['GET', 'HEAD'].includes(options.method)) headers['X-Admin-CSRF'] = csrf;
-      const response = await fetch(url, { ...options, headers, credentials: 'same-origin' });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        if (response.status === 401) showLogin();
-        throw new Error(data.message || `HTTP ${response.status}`);
-      }
-      return data;
-    }
-    function showLogin(message = '') { csrf = ''; $('dashboard').classList.add('hidden'); $('login').classList.remove('hidden'); $('loginNotice').textContent = message; }
-    function showDashboard(token) { csrf = token; $('login').classList.add('hidden'); $('dashboard').classList.remove('hidden'); loadLauncherStatus(); loadPlayers(); }
-    function tell(message, ok = false) { $('notice').textContent = message; $('notice').classList.toggle('ok', ok); }
-    function cell(row, value, className = '') { const td = document.createElement('td'); td.textContent = value; if (className) td.className = className; row.append(td); return td; }
-
     async function loadPlayers() {
+    async function loadPlayers(page = currentPage) {
       tell('กำลังโหลดข้อมูล…');
       try {
         const result = await api(`/admin/api/item-usage?q=${encodeURIComponent($('search').value.trim())}`);
+        const result = await api(`/admin/api/item-usage?page=${page}&q=${encodeURIComponent($('search').value.trim())}`);
+        currentPage = result.page;
         $('rows').replaceChildren();
         $('count').textContent = `${result.events.length}${result.events.length === 100 ? '+' : ''} เหตุการณ์`;
+        const first = result.total ? (result.page - 1) * result.pageSize + 1 : 0;
+        const last = Math.min(result.page * result.pageSize, result.total);
+        $('count').textContent = `${numberFmt.format(first)}–${numberFmt.format(last)} จาก ${numberFmt.format(result.total)} เหตุการณ์`;
+        $('pageInfo').textContent = `หน้า ${numberFmt.format(result.page)}`;
+        $('previousPage').disabled = result.page <= 1;
+        $('nextPage').disabled = !result.hasMore;
         $('empty').classList.toggle('hidden', result.events.length > 0);
-        for (const event of result.events) {
-          const tr = document.createElement('tr');
-          cell(tr, event.steamId, 'mono'); cell(tr, event.discordName || '—');
-          cell(tr, `${event.itemName}${event.itemId ? ` (${event.itemId})` : ''} × ${numberFmt.format(event.quantity)}`);
-          cell(tr, new Date(event.usedAt).toLocaleString('th-TH'));
-          const until = event.bannedUntil ? new Date(event.bannedUntil) : null;
-          const activeBan = event.isBanned && (!until || until.getTime() > Date.now());
-          const banText = activeBan ? (until ? `แบนถึง ${until.toLocaleString('th-TH')}` : 'แบนถาวร') : (event.isBanned ? 'หมดเวลาแบน' : 'ปกติ');
-          cell(tr, banText);
-          const actions = document.createElement('td'); actions.className = 'actions';
-          const ban = document.createElement('button');
-          ban.textContent = event.isBanned ? 'ปลดแบน' : 'แบน';
-          ban.className = event.isBanned ? 'secondary' : 'danger';
-          ban.addEventListener('click', () => event.isBanned ? unbanPlayer(event) : banPlayer(event));
-          actions.append(ban); tr.append(actions); $('rows').append(tr);
-        }
-        tell('');
-      } catch (error) { tell(error.message); }
-    }
-    async function loadLauncherStatus() {
-      try {
-        const data = await api('/admin/api/launcher');
-        $('statusDot').classList.toggle('online', data.isOnline);
-        const until = data.closedUntil ? new Date(data.closedUntil) : null;
-        const remaining = until && !data.isOnline ? Math.max(0, Math.ceil((until.getTime() - Date.now()) / 60000)) : 0;
-        $('statusText').textContent = data.isOnline ? 'เปิดให้เข้าใช้งาน' : `ปิด / เปิดอัตโนมัติใน ${Math.floor(remaining / 60)} ชม. ${remaining % 60} นาที`;
-        $('toggleLauncher').textContent = data.isOnline ? 'ปิด Launcher' : 'เปิด Launcher';
-        $('toggleLauncher').className = data.isOnline ? 'danger' : '';
-        $('toggleLauncher').dataset.next = String(!data.isOnline);
-      } catch (error) { $('statusText').textContent = error.message; $('toggleLauncher').disabled = true; }
-    }
-    async function banPlayer(player) {
-      const input = prompt(`แบน ${player.displayName || player.steamId}: ใส่จำนวนนาที หรือพิมพ์ "ถาวร"`);
-      if (input === null) return;
-      const value = input.trim().toLowerCase();
-      const permanent = value === 'ถาวร' || value === 'ถาวรตลอดไป' || value === 'permanent';
-      const minutes = Number(value);
-      if (!permanent && (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 525600)) { tell('ใส่ 1–525,600 นาที หรือพิมพ์ "ถาวร"'); return; }
-      const reason = prompt('เหตุผลการแบน (เว้นว่างได้)') || '';
-      if (!confirm(permanent ? 'ยืนยันแบนผู้เล่นถาวร?' : `ยืนยันแบนผู้เล่น ${minutes} นาที?`)) return;
-      try {
-        await api(`/admin/api/players/${encodeURIComponent(player.steamId)}/ban`, { method: 'PUT', body: JSON.stringify({ permanent, minutes, reason }) });
-        tell('แบนผู้เล่นแล้ว', true); await loadPlayers();
-      } catch (error) { tell(error.message); }
-    }
-    async function unbanPlayer(player) {
-      if (!confirm(`ยืนยันปลดแบน ${player.displayName || player.steamId}?`)) return;
-      try {
-        await api(`/admin/api/players/${encodeURIComponent(player.steamId)}/unban`, { method: 'PUT', body: '{}' });
-        tell('ปลดแบนแล้ว', true); await loadPlayers();
-      } catch (error) { tell(error.message); }
-    }
-
-    $('loginForm').addEventListener('submit', async (event) => {
-      event.preventDefault(); $('loginNotice').textContent = 'กำลังตรวจสอบ…';
-      try {
-        const data = await api('/admin/api/login', { method: 'POST', body: JSON.stringify({ password: $('password').value }) });
-        $('password').value = ''; showDashboard(data.csrf);
-      } catch (error) { $('loginNotice').textContent = error.message; }
-    });
-    $('logout').addEventListener('click', async () => { try { await api('/admin/api/logout', { method: 'POST', body: '{}' }); } catch {} showLogin(); });
-    $('toggleLauncher').addEventListener('click', async () => {
-      const next = $('toggleLauncher').dataset.next === 'true';
-      const closeMinutes = Number($('closeMinutes').value);
-      if (!next && (!Number.isSafeInteger(closeMinutes) || closeMinutes < 1 || closeMinutes > 10080)) { tell('กำหนดเวลาปิด 1–10,080 นาที'); return; }
-      const prompt = next ? 'ยืนยันเปิดสถานะ Launcher ให้เข้าใช้งาน?' : `ยืนยันปิด Launcher เป็นเวลา ${closeMinutes} นาที?`;
-      if (!confirm(prompt)) return;
-      $('toggleLauncher').disabled = true;
-      try { await api('/admin/api/launcher', { method: 'PUT', body: JSON.stringify({ isOnline: next, closedMinutes: closeMinutes }) }); await loadLauncherStatus(); }
-      catch (error) { tell(error.message); }
-      finally { $('toggleLauncher').disabled = false; }
-    });
-    $('syncWhitelist').addEventListener('click', async () => {
-      const button = $('syncWhitelist');
-      button.disabled = true; tell('กำลังดึงรายชื่อจาก Google Sheets…');
-      try {
-        const result = await api('/admin/api/whitelist/sync', { method: 'POST', body: '{}' });
-        tell(`ซิงก์แล้ว ${numberFmt.format(result.synced)} คน${result.skipped ? ` · ข้ามข้อมูลไม่ถูกต้อง ${numberFmt.format(result.skipped)} แถว` : ''}`, true);
-        await loadPlayers();
-      } catch (error) { tell(error.message); }
-      finally { button.disabled = false; }
-    });
     $('refreshUsage').addEventListener('click', loadPlayers);
     $('search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadPlayers, 250); });
-
-    (async () => {
-      try { const data = await api('/admin/api/session'); showDashboard(data.csrf); }
-      catch { showLogin(); }
-    })();
-  </script>
-</body>
-</html>
+    $('search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => loadPlayers(1), 250); });
+    $('previousPage').addEventListener('click', () => { if (currentPage > 1) loadPlayers(currentPage - 1); });
+    $('nextPage').addEventListener('click', () => loadPlayers(currentPage + 1));
