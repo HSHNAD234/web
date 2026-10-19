@@ -194,14 +194,16 @@ app.put('/admin/api/launcher', adminReady, requireAdmin, requireAdminCsrf, async
 app.get('/admin/api/players', adminReady, requireAdmin, async (req, res) => {
     try {
         const query = String(req.query.q || '').trim().slice(0, 64);
-        let request = db().from('players').select('steam_id,display_name,discord_id,discord_tag,whitelisted_at,level,experience,gold,gem,is_banned,banned_until,ban_reason,created_at,updated_at')
-            .order('updated_at', { ascending: false }).limit(100);
+        const page = Math.max(1, Math.min(1000000, Number.parseInt(req.query.page, 10) || 1));
+        const pageSize = 100;
+        let request = db().from('players').select('steam_id,display_name,discord_id,discord_tag,whitelisted_at,is_banned,banned_until,ban_reason,created_at,updated_at', { count: 'exact' })
+            .order('updated_at', { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
         if (query) {
             const safeQuery = query.replace(/[^\p{L}\p{N}_ -]/gu, '').trim();
-            if (!safeQuery) return res.json({ players: [], limit: 100 });
+            if (!safeQuery) return res.json({ players: [], page, pageSize, total: 0, hasMore: false });
             request = request.or(`steam_id.ilike.%${safeQuery}%,display_name.ilike.%${safeQuery}%,discord_tag.ilike.%${safeQuery}%,discord_id.ilike.%${safeQuery}%`);
         }
-        const { data, error } = await request;
+        const { data, error, count } = await request;
         if (error) throw error;
         res.json({
             players: (data || []).map(player => ({
@@ -213,13 +215,10 @@ app.get('/admin/api/players', adminReady, requireAdmin, async (req, res) => {
                 isBanned: player.is_banned,
                 bannedUntil: player.banned_until,
                 banReason: player.ban_reason,
-                level: player.level,
-                experience: player.experience,
-                currency: { gold: player.gold, gem: player.gem },
                 createdAt: player.created_at,
                 updatedAt: player.updated_at
             })),
-            limit: 100
+            page, pageSize, total: count || 0, hasMore: page * pageSize < (count || 0)
         });
     } catch (error) {
         console.error('[admin/players] List failed:', error.message);
@@ -465,6 +464,51 @@ function requireVerifiedSteamUser(req, res, next) {
     }
     next();
 }
+
+// The launcher presents its Discord OAuth session token. Verify it with the
+// existing auth service before looking up ban status by the verified Discord ID.
+app.get('/live/player/ban-status', async (req, res) => {
+    const authorization = String(req.get('authorization') || '');
+    const match = authorization.match(/^Bearer\s+(.+)$/i);
+    if (!match) return res.status(401).json({ message: 'Authentication required' });
+    const authMeUrl = (process.env.DISCORD_AUTH_ME_URL || '').trim();
+    if (!authMeUrl) return res.status(503).json({ message: 'Ban status authentication is not configured' });
+    try {
+        const authUrl = new URL(authMeUrl);
+        if (authUrl.protocol !== 'https:') throw new Error('Auth verification URL must use HTTPS');
+        const authResponse = await fetch(authUrl, {
+            headers: { Authorization: `Bearer ${match[1]}` },
+            signal: AbortSignal.timeout(10000)
+        });
+        if (!authResponse.ok) return res.status(401).json({ message: 'Authentication failed' });
+        const identity = await authResponse.json();
+        const discordId = String(identity?.discordId || '').trim();
+        if (identity?.authenticated !== true || !/^\d{17,20}$/.test(discordId)) {
+            return res.status(401).json({ message: 'Authentication failed' });
+        }
+
+        const { data: player, error } = await db().from('players')
+            .select('steam_id,is_banned,banned_until,ban_reason')
+            .eq('discord_id', discordId).limit(1).maybeSingle();
+        if (error) throw error;
+        if (!player) return res.json({ found: false, isBanned: false });
+
+        let isBanned = player.is_banned;
+        let bannedUntil = player.banned_until;
+        let banReason = player.ban_reason;
+        if (isBanned && bannedUntil && new Date(bannedUntil).getTime() <= Date.now()) {
+            const { error: updateError } = await db().from('players').update({
+                is_banned: false, banned_until: null, ban_reason: null, updated_at: new Date().toISOString()
+            }).eq('steam_id', player.steam_id);
+            if (updateError) throw updateError;
+            isBanned = false; bannedUntil = null; banReason = null;
+        }
+        res.json({ found: true, isBanned, bannedUntil, banReason });
+    } catch (error) {
+        console.error('[player/ban-status] Check failed:', error.message);
+        res.status(503).json({ message: 'Could not verify player ban status' });
+    }
+});
 
 app.get('/live/checkversion', async (req, res) => {
     try {
