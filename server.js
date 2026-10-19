@@ -194,12 +194,12 @@ app.put('/admin/api/launcher', adminReady, requireAdmin, requireAdminCsrf, async
 app.get('/admin/api/players', adminReady, requireAdmin, async (req, res) => {
     try {
         const query = String(req.query.q || '').trim().slice(0, 64);
-        let request = db().from('players').select('steam_id,display_name,level,experience,gold,gem,created_at,updated_at')
+        let request = db().from('players').select('steam_id,display_name,discord_id,discord_tag,whitelisted_at,level,experience,gold,gem,is_banned,banned_until,ban_reason,created_at,updated_at')
             .order('updated_at', { ascending: false }).limit(100);
         if (query) {
             const safeQuery = query.replace(/[^\p{L}\p{N}_ -]/gu, '').trim();
             if (!safeQuery) return res.json({ players: [], limit: 100 });
-            request = request.or(`steam_id.ilike.%${safeQuery}%,display_name.ilike.%${safeQuery}%`);
+            request = request.or(`steam_id.ilike.%${safeQuery}%,display_name.ilike.%${safeQuery}%,discord_tag.ilike.%${safeQuery}%,discord_id.ilike.%${safeQuery}%`);
         }
         const { data, error } = await request;
         if (error) throw error;
@@ -207,6 +207,12 @@ app.get('/admin/api/players', adminReady, requireAdmin, async (req, res) => {
             players: (data || []).map(player => ({
                 steamId: player.steam_id,
                 displayName: player.display_name,
+                discordId: player.discord_id,
+                discordTag: player.discord_tag,
+                whitelistedAt: player.whitelisted_at,
+                isBanned: player.is_banned,
+                bannedUntil: player.banned_until,
+                banReason: player.ban_reason,
                 level: player.level,
                 experience: player.experience,
                 currency: { gold: player.gold, gem: player.gem },
@@ -218,6 +224,171 @@ app.get('/admin/api/players', adminReady, requireAdmin, async (req, res) => {
     } catch (error) {
         console.error('[admin/players] List failed:', error.message);
         res.status(500).json({ message: 'อ่านข้อมูลผู้เล่นไม่สำเร็จ' });
+    }
+});
+
+app.put('/admin/api/players/:steamId/ban', adminReady, requireAdmin, requireAdminCsrf, async (req, res) => {
+    if (!/^\d{17}$/.test(req.params.steamId)) return res.status(400).json({ message: 'SteamID ไม่ถูกต้อง' });
+    const permanent = req.body?.permanent === true;
+    const minutes = Number(req.body?.minutes);
+    if (!permanent && (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 525600)) {
+        return res.status(400).json({ message: 'กำหนดเวลาแบน 1–525,600 นาที หรือเลือกแบนถาวร' });
+    }
+    const reason = String(req.body?.reason || '').trim().slice(0, 300) || null;
+    const bannedUntil = permanent ? null : new Date(Date.now() + minutes * 60000).toISOString();
+    try {
+        const { data, error } = await db().from('players').update({
+            is_banned: true, banned_until: bannedUntil, ban_reason: reason, updated_at: new Date().toISOString()
+        }).eq('steam_id', req.params.steamId).select('steam_id,is_banned,banned_until,ban_reason').maybeSingle();
+        if (error) throw error;
+        if (!data) return res.status(404).json({ message: 'ไม่พบผู้เล่น' });
+        res.json({ ok: true, player: data });
+    } catch (error) {
+        console.error('[admin/player-ban] Update failed:', error.message);
+        res.status(500).json({ message: 'แบนผู้เล่นไม่สำเร็จ' });
+    }
+});
+
+app.put('/admin/api/players/:steamId/unban', adminReady, requireAdmin, requireAdminCsrf, async (req, res) => {
+    if (!/^\d{17}$/.test(req.params.steamId)) return res.status(400).json({ message: 'SteamID ไม่ถูกต้อง' });
+    try {
+        const { data, error } = await db().from('players').update({
+            is_banned: false, banned_until: null, ban_reason: null, updated_at: new Date().toISOString()
+        }).eq('steam_id', req.params.steamId).select('steam_id,is_banned').maybeSingle();
+        if (error) throw error;
+        if (!data) return res.status(404).json({ message: 'ไม่พบผู้เล่น' });
+        res.json({ ok: true });
+    } catch (error) {
+        console.error('[admin/player-unban] Update failed:', error.message);
+        res.status(500).json({ message: 'ปลดแบนผู้เล่นไม่สำเร็จ' });
+    }
+});
+
+app.post('/admin/api/whitelist/sync', adminReady, requireAdmin, requireAdminCsrf, async (req, res) => {
+    const apiUrl = (process.env.WHITELIST_API_URL || '').trim();
+    const syncToken = (process.env.WHITELIST_SYNC_TOKEN || '').trim();
+    if (!apiUrl || !syncToken) {
+        return res.status(503).json({ message: 'ตั้งค่า WHITELIST_API_URL และ WHITELIST_SYNC_TOKEN ใน Environment ก่อน' });
+    }
+    try {
+        const endpoint = new URL(apiUrl);
+        if (endpoint.protocol !== 'https:') throw new Error('Whitelist URL must use HTTPS');
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'list', token: syncToken }),
+            signal: AbortSignal.timeout(20000)
+        });
+        const raw = await response.text();
+        if (!response.ok || raw.length > 2_000_000) throw new Error(`Whitelist endpoint returned HTTP ${response.status}`);
+        const payload = JSON.parse(raw);
+        if (payload.found !== true || !Array.isArray(payload.data)) throw new Error('Whitelist response is invalid');
+
+        const unique = new Map();
+        let skipped = 0;
+        for (const row of payload.data) {
+            const steamId = String(row?.steamId || '').trim();
+            const displayName = String(row?.steamName || '').trim();
+            if (!/^\d{17}$/.test(steamId) || !displayName || displayName.length > 64) {
+                skipped += 1;
+                continue;
+            }
+            unique.set(steamId, {
+                steam_id: steamId,
+                display_name: displayName,
+                discord_id: String(row.discordId || '').trim() || null,
+                discord_tag: String(row.discordTag || '').trim() || null,
+                whitelisted_at: String(row.timestamp || '').trim() || null,
+                updated_at: new Date().toISOString()
+            });
+        }
+        const records = [...unique.values()];
+        for (let offset = 0; offset < records.length; offset += 200) {
+            const { error } = await db().from('players').upsert(records.slice(offset, offset + 200), {
+                onConflict: 'steam_id', ignoreDuplicates: false
+            });
+            if (error) throw error;
+        }
+        res.json({ synced: records.length, skipped });
+    } catch (error) {
+        console.error('[admin/whitelist-sync] Sync failed:', error.message);
+        res.status(502).json({ message: 'ซิงก์ Whitelist ไม่สำเร็จ ตรวจ URL, token และการ Deploy Apps Script' });
+    }
+});
+
+app.get('/admin/api/item-usage', adminReady, requireAdmin, async (req, res) => {
+    try {
+        const query = String(req.query.q || '').trim().slice(0, 64);
+        let request = db().from('item_usage_events')
+            .select('id,steam_id,item_id,item_name,quantity,used_at')
+            .order('used_at', { ascending: false }).limit(100);
+        if (query) {
+            const safeQuery = query.replace(/[^\p{L}\p{N}_ -]/gu, '').trim();
+            if (!safeQuery) return res.json({ events: [], limit: 100 });
+            request = request.or(`steam_id.ilike.%${safeQuery}%,item_id.ilike.%${safeQuery}%,item_name.ilike.%${safeQuery}%`);
+        }
+        const { data: events, error } = await request;
+        if (error) throw error;
+        const steamIds = [...new Set((events || []).map(event => event.steam_id))];
+        let playersById = new Map();
+        if (steamIds.length) {
+            const { data: players, error: playersError } = await db().from('players')
+                .select('steam_id,display_name,discord_tag,discord_id,is_banned,banned_until,ban_reason')
+                .in('steam_id', steamIds);
+            if (playersError) throw playersError;
+            playersById = new Map((players || []).map(player => [player.steam_id, player]));
+        }
+        res.json({ events: (events || []).map(event => {
+            const player = playersById.get(event.steam_id) || {};
+            return {
+                id: event.id, steamId: event.steam_id,
+                displayName: player.display_name || 'Player',
+                discordName: player.discord_tag || player.discord_id || '—',
+                itemId: event.item_id, itemName: event.item_name,
+                quantity: event.quantity, usedAt: event.used_at,
+                isBanned: player.is_banned || false, bannedUntil: player.banned_until || null,
+                banReason: player.ban_reason || null
+            };
+        }), limit: 100 });
+    } catch (error) {
+        console.error('[admin/item-usage] List failed:', error.message);
+        res.status(500).json({ message: 'อ่านประวัติการใช้ไอเท็มไม่สำเร็จ' });
+    }
+});
+
+// Call only from a trusted game server. Never put GAME_EVENT_SECRET in a game client/launcher.
+app.post('/live/player/item-usage', async (req, res) => {
+    const configuredSecret = (process.env.GAME_EVENT_SECRET || '').trim();
+    const suppliedSecret = String(req.get('x-game-event-secret') || '');
+    const expected = Buffer.from(configuredSecret);
+    const supplied = Buffer.from(suppliedSecret);
+    if (!configuredSecret || expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) {
+        return res.status(401).json({ ok: false, message: 'Unauthorized' });
+    }
+    const steamId = String(req.body?.steamId || '').trim();
+    const itemId = String(req.body?.itemId || '').trim().slice(0, 120) || null;
+    const itemName = String(req.body?.itemName || itemId || '').trim().slice(0, 120);
+    const quantity = Number(req.body?.quantity ?? 1);
+    const displayName = String(req.body?.displayName || 'Player').trim().slice(0, 64) || 'Player';
+    const usedAt = req.body?.usedAt ? new Date(req.body.usedAt) : new Date();
+    if (!/^\d{17}$/.test(steamId) || !itemName || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 1000000) {
+        return res.status(400).json({ ok: false, message: 'Invalid item usage event' });
+    }
+    if (Number.isNaN(usedAt.getTime())) return res.status(400).json({ ok: false, message: 'Invalid usedAt timestamp' });
+    try {
+        const { error: playerError } = await db().from('players').upsert({
+            steam_id: steamId, display_name: displayName
+        }, { onConflict: 'steam_id', ignoreDuplicates: true });
+        if (playerError) throw playerError;
+        const { data, error } = await db().from('item_usage_events').insert({
+            steam_id: steamId, item_id: itemId, item_name: itemName, quantity,
+            used_at: usedAt.toISOString()
+        }).select('id,used_at').single();
+        if (error) throw error;
+        res.status(201).json({ ok: true, id: data.id, usedAt: data.used_at });
+    } catch (error) {
+        console.error('[item-usage] Insert failed:', error.message);
+        res.status(500).json({ ok: false, message: 'Could not record item usage' });
     }
 });
 
@@ -308,6 +479,19 @@ app.get('/live/player/getdata', requireVerifiedSteamUser, async (req, res) => {
                 if (result.error) throw result.error;
                 player = result.data;
             }
+        }
+        if (player.is_banned) {
+            const expired = player.banned_until && new Date(player.banned_until).getTime() <= Date.now();
+            if (!expired) {
+                return res.status(403).json({
+                    code: 403, message: 'Player is banned', status: false,
+                    bannedUntil: player.banned_until, banReason: player.ban_reason
+                });
+            }
+            const { error: unbanError } = await db().from('players').update({
+                is_banned: false, banned_until: null, ban_reason: null, updated_at: new Date().toISOString()
+            }).eq('steam_id', steamId);
+            if (unbanError) throw unbanError;
         }
         res.json({ code: 0, message: 'Success', data: toLauncherPlayer(player) });
     } catch (error) {
