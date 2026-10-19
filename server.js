@@ -270,6 +270,7 @@ app.post('/admin/api/whitelist/sync', adminReady, requireAdmin, requireAdminCsrf
     if (!apiUrl || !syncToken) {
         return res.status(503).json({ message: 'ตั้งค่า WHITELIST_API_URL และ WHITELIST_SYNC_TOKEN ใน Environment ก่อน' });
     }
+    let stage = 'เรียก Apps Script';
     try {
         const endpoint = new URL(apiUrl);
         if (endpoint.protocol !== 'https:') throw new Error('Whitelist URL must use HTTPS');
@@ -281,9 +282,23 @@ app.post('/admin/api/whitelist/sync', adminReady, requireAdmin, requireAdminCsrf
         });
         const raw = await response.text();
         if (!response.ok || raw.length > 2_000_000) throw new Error(`Whitelist endpoint returned HTTP ${response.status}`);
-        const payload = JSON.parse(raw);
-        if (payload.found !== true || !Array.isArray(payload.data)) throw new Error('Whitelist response is invalid');
+        let payload;
+        try { payload = JSON.parse(raw); }
+        catch { return res.status(502).json({ message: 'Apps Script ไม่ได้ตอบ JSON: ตรวจ URL ให้ลงท้าย /exec, สิทธิ์ Anyone และ Deploy เวอร์ชันล่าสุด' }); }
+        if (payload.error === 'unauthorized') {
+            return res.status(502).json({ message: 'SYNC_TOKEN ใน Apps Script ไม่ตรงกับ WHITELIST_SYNC_TOKEN ใน Render' });
+        }
+        if (payload.error === 'sheet_not_found') {
+            return res.status(502).json({ message: 'หาแท็บชีตไม่พบ: ตรวจชื่อ SHEET_NAME ใน Code.gs ให้ตรงกับแท็บจริง' });
+        }
+        if (payload.error === 'internal_error') {
+            return res.status(502).json({ message: 'Apps Script เปิดชีตไม่ได้: ตรวจ Spreadsheet ID และอนุญาตสิทธิ์ Google Sheets ให้ Apps Script' });
+        }
+        if (payload.found !== true || !Array.isArray(payload.data)) {
+            return res.status(502).json({ message: 'Apps Script ใช้รูปแบบตอบกลับเก่า: บันทึกโค้ดและ Deploy เวอร์ชันใหม่อีกครั้ง' });
+        }
 
+        stage = 'บันทึกลง Supabase';
         const unique = new Map();
         let skipped = 0;
         for (const row of payload.data) {
@@ -312,7 +327,10 @@ app.post('/admin/api/whitelist/sync', adminReady, requireAdmin, requireAdminCsrf
         res.json({ synced: records.length, skipped });
     } catch (error) {
         console.error('[admin/whitelist-sync] Sync failed:', error.message);
-        res.status(502).json({ message: 'ซิงก์ Whitelist ไม่สำเร็จ ตรวจ URL, token และการ Deploy Apps Script' });
+        const message = stage === 'บันทึกลง Supabase'
+            ? 'อ่านชีตได้แล้ว แต่บันทึก Supabase ไม่สำเร็จ: รัน schema.sql เวอร์ชันล่าสุดและตรวจ SUPABASE_SECRET_KEY'
+            : 'เรียก Apps Script ไม่สำเร็จ: ตรวจ URL /exec, การ Deploy เป็น Anyone และสิทธิ์เข้าถึงชีต';
+        res.status(502).json({ message });
     }
 });
 
