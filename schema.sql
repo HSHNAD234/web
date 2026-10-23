@@ -1,31 +1,138 @@
--- Run this once in Supabase Dashboard > SQL Editor.
+-- HSHO game database schema (Supabase/Postgres)
+-- Safe to re-run. Keeps existing Admin/Whitelist columns and adds API-compatible fields.
+-- Run in Supabase Dashboard > SQL Editor.
+
 create table if not exists public.players (
-    steam_id text primary key check (steam_id ~ '^[0-9]{17}$'),
-    display_name text not null default 'Player' check (char_length(display_name) between 1 and 64),
-    level integer not null default 1 check (level >= 1),
-    experience bigint not null default 0 check (experience >= 0),
-    gold bigint not null default 0 check (gold >= 0),
-    gem bigint not null default 0 check (gem >= 0),
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now()
+  steam_id text primary key check (steam_id ~ '^[0-9]{17}$'),
+  display_name text not null default 'Player' check (char_length(display_name) between 1 and 64),
+  level integer not null default 1 check (level >= 1),
+  experience bigint not null default 0 check (experience >= 0),
+  gold bigint not null default 0 check (gold >= 0),
+  gem bigint not null default 0 check (gem >= 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
+-- Existing whitelist / moderation fields (additive for older projects).
+alter table public.players
+  add column if not exists discord_id text,
+  add column if not exists discord_tag text,
+  add column if not exists whitelisted_at timestamptz,
+  add column if not exists is_banned boolean not null default false,
+  add column if not exists banned_until timestamptz,
+  add column if not exists ban_reason text,
+  add column if not exists is_whitelisted boolean not null default false;
+
+-- Fields consumed by the game API. api_data preserves fields from the game
+-- template that are not yet represented as first-class columns.
+alter table public.players
+  add column if not exists api_data jsonb not null default '{}'::jsonb,
+  add column if not exists auth jsonb not null default '[]'::jsonb,
+  add column if not exists session_token text,
+  add column if not exists profile jsonb not null default '{"display":"Profile_Default","displayName":"","lastNameUpdate":null,"updatedAt":null}'::jsonb,
+  add column if not exists coin bigint not null default 250000,
+  add column if not exists amethyst bigint not null default 0,
+  add column if not exists amulet bigint not null default 0,
+  add column if not exists character_slot jsonb not null default '{}'::jsonb,
+  add column if not exists role text not null default 'survivor',
+  add column if not exists ban_status jsonb not null default '{}'::jsonb,
+  add column if not exists player_record jsonb not null default '{}'::jsonb,
+  add column if not exists player_record_hunter jsonb not null default '{}'::jsonb,
+  add column if not exists player_record_survivor jsonb not null default '{}'::jsonb,
+  add column if not exists sticker_slot jsonb not null default '{}'::jsonb,
+  add column if not exists inventory jsonb not null default '{}'::jsonb,
+  add column if not exists immortal_data jsonb not null default '[]'::jsonb,
+  add column if not exists player_stat jsonb not null default '{}'::jsonb,
+  add column if not exists rank_data jsonb not null default '{}'::jsonb,
+  add column if not exists return_player_status jsonb not null default '{}'::jsonb,
+  add column if not exists curse_relic jsonb not null default '{}'::jsonb,
+  add column if not exists is_online boolean not null default false,
+  add column if not exists last_online timestamptz;
+
+create index if not exists players_discord_id_idx on public.players (discord_id);
+create index if not exists players_is_banned_idx on public.players (is_banned);
+create index if not exists players_is_whitelisted_idx on public.players (is_whitelisted);
+create index if not exists players_is_online_idx on public.players (is_online);
+create index if not exists players_auth_gin_idx on public.players using gin (auth);
+create index if not exists players_inventory_gin_idx on public.players using gin (inventory);
+
 create table if not exists public.server_settings (
-    id text primary key default 'main' check (id = 'main'),
-    is_online boolean not null default true,
-    closed_until timestamptz,
-    correct_version boolean not null default true,
-    server_version text not null default '1.0.6.0',
-    server_dev_version text not null default '0.0.0.1',
-    updated_at timestamptz not null default now()
+  id text primary key default 'main' check (id = 'main'),
+  is_online boolean not null default true,
+  closed_until timestamptz,
+  correct_version boolean not null default true,
+  server_version text not null default '1.0.6.0',
+  server_dev_version text not null default '0.0.0.1',
+  is_dev_online boolean not null default true,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.server_settings
+  add column if not exists is_dev_online boolean not null default true,
+  add column if not exists server_dev_version text not null default '0.0.0.1';
+
+-- Game telemetry / admin pages.
+create table if not exists public.item_usage_events (
+  id bigint generated by default as identity primary key,
+  steam_id text not null references public.players(steam_id) on delete cascade,
+  item_id text not null,
+  item_name text not null default '',
+  quantity integer not null default 1 check (quantity > 0),
+  used_at timestamptz not null default now(),
+  metadata jsonb not null default '{}'::jsonb
+);
+create index if not exists item_usage_events_steam_id_idx on public.item_usage_events (steam_id);
+create index if not exists item_usage_events_used_at_idx on public.item_usage_events (used_at desc);
+
+create table if not exists public.player_stats (
+  steam_id text primary key references public.players(steam_id) on delete cascade,
+  stats jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.match_logs (
+  id bigint generated by default as identity primary key,
+  steam_id text references public.players(steam_id) on delete set null,
+  match_id text,
+  mode text,
+  result jsonb not null default '{}'::jsonb,
+  played_at timestamptz not null default now()
+);
+create index if not exists match_logs_steam_id_idx on public.match_logs (steam_id);
+create index if not exists match_logs_played_at_idx on public.match_logs (played_at desc);
+
+create table if not exists public.store_products (
+  product_id text primary key,
+  name text not null,
+  price bigint not null default 0 check (price >= 0),
+  currency text not null default 'coin',
+  is_active boolean not null default true,
+  metadata jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
 );
 
 alter table public.players enable row level security;
 alter table public.server_settings enable row level security;
+alter table public.item_usage_events enable row level security;
+alter table public.player_stats enable row level security;
+alter table public.match_logs enable row level security;
+alter table public.store_products enable row level security;
 
+-- The service role is for the trusted server only. Never expose it to browser code.
 revoke all on public.players from anon, authenticated;
 revoke all on public.server_settings from anon, authenticated;
+revoke all on public.item_usage_events from anon, authenticated;
+revoke all on public.player_stats from anon, authenticated;
+revoke all on public.match_logs from anon, authenticated;
+revoke all on public.store_products from anon, authenticated;
+
 grant all on public.players to service_role;
 grant all on public.server_settings to service_role;
+grant all on public.item_usage_events to service_role;
+grant all on public.player_stats to service_role;
+grant all on public.match_logs to service_role;
+grant all on public.store_products to service_role;
+grant usage, select on all sequences in schema public to service_role;
 
-insert into public.server_settings (id) values ('main') on conflict (id) do nothing;
+insert into public.server_settings (id) values ('main')
+on conflict (id) do nothing;
