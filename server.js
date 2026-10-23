@@ -2473,6 +2473,43 @@ app.get('/admin/api/players', requireAdmin, async (req, res) => {
     res.json({ players: (data || []).map(playerForAdmin), page, pageSize, total, hasMore: page*pageSize < total });
   } catch (e) { adminError(res, e); }
 });
+app.put('/admin/api/players/:steamId', requireAdmin, async (req, res) => {
+  try {
+    const steamId = String(req.params.steamId || '');
+    if (!/^\\d{17}$/.test(steamId)) {
+      return res.status(400).json({ message: 'Steam ID ต้องเป็นตัวเลข 17 หลัก' });
+    }
+
+    const allowed = ['level', 'experience', 'gold', 'gem'];
+    const updates = {};
+    for (const field of allowed) {
+      const value = req.body?.[field];
+      if (!Number.isSafeInteger(value) || value < 0 || value > 2147483647) {
+        return res.status(400).json({ message: field + ' ต้องเป็นจำนวนเต็มตั้งแต่ 0 ถึง 2147483647' });
+      }
+      updates[field] = value;
+    }
+
+    const { data: existing, error: readError } = await supabase
+      .from('players')
+      .select('steam_id,api_data')
+      .eq('steam_id', steamId)
+      .maybeSingle();
+    if (readError) throw readError;
+    if (!existing) return res.status(404).json({ message: 'ไม่พบผู้เล่น' });
+
+    updates.updated_at = new Date().toISOString();
+    const { data, error } = await supabase
+      .from('players')
+      .update(updates)
+      .eq('steam_id', steamId)
+      .select('steam_id,level,experience,gold,gem,updated_at')
+      .single();
+    if (error) throw error;
+
+    res.json({ ok: true, player: data });
+  } catch (e) { adminError(res, e); }
+});
 app.get('/admin/api/item-usage', requireAdmin, async (req, res) => {
   try {
     const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1));
