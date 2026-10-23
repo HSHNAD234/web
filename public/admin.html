@@ -69,7 +69,7 @@
         const entries = currentView === 'players' ? result.players : result.events;
         currentPage = result.page;
         const columns = currentView === 'players'
-          ? ['Steam ID', 'Discord Name', 'สถานะแบน', 'จัดการ']
+          ? ['Steam ID', 'ชื่อผู้เล่น', 'Discord Name', 'Level', 'EXP', 'Gold', 'Gem', 'Coin', 'Role', 'ออนไลน์', 'สถานะแบน', 'จัดการ']
           : ['Steam ID', 'Discord Name', 'ไอเท็มที่ใช้', 'วันและเวลาที่ใช้', 'สถานะแบน', 'จัดการ'];
         $('tableHead').replaceChildren(Object.assign(document.createElement('tr'), { innerHTML: columns.map(name => `<th>${name}</th>`).join('') }));
         $('search').placeholder = currentView === 'players' ? 'ค้นหาด้วย Steam ID หรือ Discord Name' : 'ค้นหาด้วย Steam ID หรือชื่อไอเท็ม';
@@ -88,7 +88,20 @@
         $('empty').classList.toggle('hidden', entries.length > 0);
         for (const event of entries) {
           const tr = document.createElement('tr');
-          cell(tr, event.steamId, 'mono'); cell(tr, currentView === 'players' ? (event.discordTag || event.discordId || '—') : (event.discordName || '—'));
+          cell(tr, event.steamId, 'mono');
+          if (currentView === 'players') {
+            cell(tr, event.displayName || event.display_name || '—');
+            cell(tr, event.discordTag || event.discord_tag || event.discordId || event.discord_id || '—');
+            cell(tr, numberFmt.format(Number(event.level ?? 1)));
+            cell(tr, numberFmt.format(Number(event.experience ?? 0)));
+            cell(tr, numberFmt.format(Number(event.gold ?? 0)));
+            cell(tr, numberFmt.format(Number(event.gem ?? 0)));
+            cell(tr, numberFmt.format(Number(event.coin ?? 0)));
+            cell(tr, event.role || 'survivor');
+            cell(tr, (event.isOnline ?? event.is_online) ? 'ออนไลน์' : 'ออฟไลน์');
+          } else {
+            cell(tr, event.discordName || event.discordTag || '—');
+          }
           if (currentView === 'usage') {
             cell(tr, `${event.itemName}${event.itemId ? ` (${event.itemId})` : ''} × ${numberFmt.format(event.quantity)}`);
             cell(tr, new Date(event.usedAt).toLocaleString('th-TH'));
