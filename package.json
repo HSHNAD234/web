@@ -1,17 +1,35 @@
 {
-  "name": "hsho-server",
-  "version": "1.0.0",
-  "description": "HSHO Private Server Backend",
+  "name": "hsho-privateserver",
+  "version": "1.0.8",
+  "description": "A private server implementation for **Home Sweet Home: Online**. This project enables players to continue playing HSHO after official server shutdown.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
-  "engines": {
-    "node": ">=20"
-  },
+  "keywords": [],
+  "author": "Kaiwaii4ever",
+  "license": "ISC",
+  "type": "commonjs",
   "dependencies": {
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "@supabase/supabase-js": "^2.57.4"
+    "axios": "^1.13.2",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "redis": "^5.10.0",
+    "uuid": "^13.0.0",
+    "@supabase/supabase-js": "^2.57.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.2",
+    "module-alias": "^2.2.3",
+    "prettier": "^3.7.4"
+  },
+  "_moduleAliases": {
+    "@config": "src/config",
+    "@routes": "src/routes",
+    "@utils": "src/utils",
+    "@src": "src"
   }
 }
