@@ -2476,7 +2476,7 @@ app.get('/admin/api/players', requireAdmin, async (req, res) => {
 app.put('/admin/api/players/:steamId', requireAdmin, async (req, res) => {
   try {
     const steamId = String(req.params.steamId || '');
-    if (!/^\\d{17}$/.test(steamId)) {
+    if (!/^\d{17}$/.test(steamId)) {
       return res.status(400).json({ message: 'Steam ID ต้องเป็นตัวเลข 17 หลัก' });
     }
 
