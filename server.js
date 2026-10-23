@@ -2367,8 +2367,193 @@ const routes = __load('/src/routes/index.js');
 const Health = __load('/src/Health.js');
 const supabase = __load('/src/config/supabase.js');
 const app = express();
+app.disable('x-powered-by');
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
+
+// Admin dashboard API (shares the same Supabase project as the game API).
+const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
+const adminSessions = new Map();
+const loginAttempts = new Map();
+const ADMIN_SESSION_TTL = 8 * 60 * 60 * 1000;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || '';
+function parseCookies(header = '') {
+  const out = {};
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx > 0) out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+  }
+  return out;
+}
+function safeEqual(a, b) {
+  const aa = Buffer.from(String(a)); const bb = Buffer.from(String(b));
+  return aa.length === bb.length && crypto.timingSafeEqual(aa, bb);
+}
+function newToken() { return crypto.randomBytes(32).toString('hex'); }
+function adminCookie(req, res, token) {
+  const secure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  res.setHeader('Set-Cookie', `hsho_admin=${encodeURIComponent(token)}; Path=/admin; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(ADMIN_SESSION_TTL/1000)}${secure ? '; Secure' : ''}`);
+}
+function getAdminSession(req) {
+  const token = parseCookies(req.headers.cookie).hsho_admin;
+  const session = token && adminSessions.get(token);
+  if (!session || session.expiresAt < Date.now()) { if (token) adminSessions.delete(token); return null; }
+  return { token, session };
+}
+function requireAdmin(req, res, next) {
+  const found = getAdminSession(req);
+  if (!found) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบใหม่' });
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !safeEqual(req.get('X-Admin-CSRF') || '', found.session.csrf))
+    return res.status(403).json({ message: 'CSRF token ไม่ถูกต้อง กรุณาโหลดหน้าใหม่' });
+  found.session.expiresAt = Date.now() + ADMIN_SESSION_TTL;
+  req.adminSession = found;
+  next();
+}
+function adminError(res, error) {
+  console.error('[admin-api]', error && error.message ? error.message : error);
+  return res.status(500).json({ message: 'เกิดข้อผิดพลาดในการติดต่อฐานข้อมูล กรุณาตรวจ schema.sql และ server logs' });
+}
+function playerForAdmin(row) {
+  const data = row.api_data || {};
+  return {
+    steamId: row.steam_id,
+    displayName: row.display_name || data.profile?.displayName || 'Player',
+    discordId: row.discord_id || data.discordId || '',
+    discordTag: row.discord_tag || data.discordTag || '',
+    isBanned: Boolean(row.is_banned),
+    bannedUntil: row.banned_until || null,
+    banReason: row.ban_reason || '',
+    isWhitelisted: row.is_whitelisted !== false,
+    level: row.level || 1,
+    experience: row.experience || 0,
+    gold: row.gold || 0,
+    gem: row.gem || 0,
+  };
+}
+app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+app.get('/admin/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+app.post('/admin/api/login', (req, res) => {
+  if (!ADMIN_PASSWORD || !ADMIN_SESSION_SECRET || ADMIN_SESSION_SECRET.length < 32)
+    return res.status(503).json({ message: 'เซิร์ฟเวอร์ยังไม่ได้ตั้ง ADMIN_PASSWORD และ ADMIN_SESSION_SECRET (อย่างน้อย 32 ตัวอักษร)' });
+  const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+  const attempts = loginAttempts.get(ip) || { count: 0, until: 0 };
+  if (attempts.until > Date.now() && attempts.count >= 8) return res.status(429).json({ message: 'ลองเข้าสู่ระบบมากเกินไป กรุณารอสักครู่' });
+  if (!safeEqual(req.body?.password || '', ADMIN_PASSWORD)) {
+    attempts.count += 1; if (attempts.count >= 8) attempts.until = Date.now() + 10 * 60 * 1000;
+    loginAttempts.set(ip, attempts);
+    return res.status(401).json({ message: 'รหัสผ่านไม่ถูกต้อง' });
+  }
+  loginAttempts.delete(ip);
+  const token = newToken(); const csrf = newToken();
+  adminSessions.set(token, { csrf, expiresAt: Date.now() + ADMIN_SESSION_TTL });
+  adminCookie(req, res, token);
+  res.json({ csrf });
+});
+app.get('/admin/api/session', requireAdmin, (req, res) => res.json({ csrf: req.adminSession.session.csrf }));
+app.post('/admin/api/logout', requireAdmin, (req, res) => {
+  adminSessions.delete(req.adminSession.token);
+  res.setHeader('Set-Cookie', 'hsho_admin=; Path=/admin; HttpOnly; SameSite=Lax; Max-Age=0');
+  res.json({ ok: true });
+});
+app.get('/admin/api/players', requireAdmin, async (req, res) => {
+  try {
+    const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1));
+    const pageSize = 50; const q = String(req.query.q || '').trim().slice(0, 100);
+    let query = supabase.from('players').select('steam_id,display_name,discord_id,discord_tag,is_whitelisted,is_banned,banned_until,ban_reason,level,experience,gold,gem,api_data,created_at,updated_at', { count: 'exact' });
+    if (q) {
+      const safe = q.replace(/[,%()]/g, ' ');
+      query = query.or(`steam_id.ilike.%${safe}%,display_name.ilike.%${safe}%,discord_tag.ilike.%${safe}%,discord_id.ilike.%${safe}%`);
+    }
+    const { data, error, count } = await query.order('updated_at', { ascending: false }).range((page-1)*pageSize, page*pageSize-1);
+    if (error) throw error;
+    const total = count || 0;
+    res.json({ players: (data || []).map(playerForAdmin), page, pageSize, total, hasMore: page*pageSize < total });
+  } catch (e) { adminError(res, e); }
+});
+app.get('/admin/api/item-usage', requireAdmin, async (req, res) => {
+  try {
+    const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1));
+    const pageSize = 50; const q = String(req.query.q || '').trim().slice(0, 100);
+    let query = supabase.from('item_usage_events').select('id,steam_id,item_id,item_name,quantity,used_at,players(display_name,discord_id,discord_tag,is_banned,banned_until,ban_reason)', { count: 'exact' });
+    if (q) { const safe = q.replace(/[,%()]/g, ' '); query = query.or(`steam_id.ilike.%${safe}%,item_name.ilike.%${safe}%,item_id.ilike.%${safe}%`); }
+    const { data, error, count } = await query.order('used_at', { ascending: false }).range((page-1)*pageSize, page*pageSize-1);
+    if (error) throw error;
+    const total = count || 0;
+    const events = (data || []).map(r => ({ steamId:r.steam_id, discordName:r.players?.discord_tag || r.players?.discord_id || r.players?.display_name || '', itemId:r.item_id, itemName:r.item_name, quantity:r.quantity, usedAt:r.used_at, isBanned:Boolean(r.players?.is_banned), bannedUntil:r.players?.banned_until || null, banReason:r.players?.ban_reason || '' }));
+    res.json({ events, page, pageSize, total, hasMore: page*pageSize < total });
+  } catch (e) { adminError(res, e); }
+});
+app.put('/admin/api/players/:steamId/ban', requireAdmin, async (req, res) => {
+  try {
+    const steamId = String(req.params.steamId || '');
+    if (!/^\d{17}$/.test(steamId)) return res.status(400).json({ message: 'Steam ID ต้องเป็นตัวเลข 17 หลัก' });
+    const permanent = req.body?.permanent === true; const minutes = Number(req.body?.minutes);
+    if (!permanent && (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 525600)) return res.status(400).json({ message: 'ระยะเวลาแบนไม่ถูกต้อง' });
+    const { data: existing, error: readError } = await supabase.from('players').select('api_data').eq('steam_id', steamId).maybeSingle();
+    if (readError) throw readError; if (!existing) return res.status(404).json({ message: 'ไม่พบผู้เล่น' });
+    const bannedUntil = permanent ? null : new Date(Date.now() + minutes*60000).toISOString();
+    const reason = String(req.body?.reason || '').slice(0, 500);
+    const apiData = { ...(existing.api_data || {}), banStatus: { permanentBanned: permanent, bannedUntil, reason } };
+    const { error } = await supabase.from('players').update({ is_banned:true, banned_until:bannedUntil, ban_reason:reason || null, api_data:apiData, updated_at:new Date().toISOString() }).eq('steam_id', steamId);
+    if (error) throw error; res.json({ ok:true });
+  } catch (e) { adminError(res, e); }
+});
+app.put('/admin/api/players/:steamId/unban', requireAdmin, async (req, res) => {
+  try {
+    const steamId = String(req.params.steamId || '');
+    if (!/^\d{17}$/.test(steamId)) return res.status(400).json({ message: 'Steam ID ต้องเป็นตัวเลข 17 หลัก' });
+    const { data: existing, error: readError } = await supabase.from('players').select('api_data').eq('steam_id', steamId).maybeSingle();
+    if (readError) throw readError; if (!existing) return res.status(404).json({ message: 'ไม่พบผู้เล่น' });
+    const apiData = { ...(existing.api_data || {}), banStatus:null };
+    const { error } = await supabase.from('players').update({ is_banned:false, banned_until:null, ban_reason:null, api_data:apiData, updated_at:new Date().toISOString() }).eq('steam_id', steamId);
+    if (error) throw error; res.json({ ok:true });
+  } catch (e) { adminError(res, e); }
+});
+app.get('/admin/api/launcher', requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('server_settings').select('is_online,closed_until').eq('id','main').maybeSingle();
+    if (error) throw error;
+    let isOnline = data?.is_online ?? true; const closedUntil = data?.closed_until || null;
+    if (!isOnline && closedUntil && new Date(closedUntil).getTime() <= Date.now()) {
+      const { error: updateError } = await supabase.from('server_settings').update({ is_online:true, closed_until:null, updated_at:new Date().toISOString() }).eq('id','main');
+      if (updateError) throw updateError; isOnline = true;
+    }
+    res.json({ isOnline, closedUntil: isOnline ? null : closedUntil });
+  } catch (e) { adminError(res, e); }
+});
+app.put('/admin/api/launcher', requireAdmin, async (req, res) => {
+  try {
+    const isOnline = req.body?.isOnline === true; const minutes = Number(req.body?.closedMinutes);
+    if (!isOnline && (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 10080)) return res.status(400).json({ message: 'เวลาปิดต้องอยู่ระหว่าง 1–10,080 นาที' });
+    const closedUntil = isOnline ? null : new Date(Date.now()+minutes*60000).toISOString();
+    const { error } = await supabase.from('server_settings').upsert({ id:'main', is_online:isOnline, closed_until:closedUntil, updated_at:new Date().toISOString() }, { onConflict:'id' });
+    if (error) throw error; res.json({ isOnline, closedUntil });
+  } catch (e) { adminError(res, e); }
+});
+app.post('/admin/api/whitelist/sync', requireAdmin, async (req, res) => {
+  try {
+    const csvUrl = process.env.WHITELIST_CSV_URL;
+    if (!csvUrl) return res.status(501).json({ message: 'ยังไม่ได้ตั้งค่า WHITELIST_CSV_URL สำหรับ Google Sheets CSV' });
+    const axios = require('axios');
+    const response = await axios.get(csvUrl, { timeout:15000, responseType:'text', maxContentLength:5*1024*1024 });
+    const rows = String(response.data).split(/\r?\n/).filter(Boolean);
+    if (rows.length < 2) return res.json({ synced:0, skipped:0 });
+    function csvLine(line) { const out=[]; let cur='', quoted=false; for(let i=0;i<line.length;i++){const c=line[i]; if(c==='"' && line[i+1]==='"' && quoted){cur+='"';i++;} else if(c==='"') quoted=!quoted; else if(c===','&&!quoted){out.push(cur.trim());cur='';} else cur+=c;} out.push(cur.trim()); return out; }
+    const headers = csvLine(rows[0]).map(x=>x.toLowerCase().replace(/[ _-]/g,''));
+    const find = (...names) => headers.findIndex(x=>names.includes(x));
+    const steamIdx=find('steamid','steam64','steam_id'); const discordIdIdx=find('discordid','discord_id'); const discordTagIdx=find('discordname','discordtag','discordusername','discord');
+    if (steamIdx < 0) return res.status(400).json({ message: 'Google Sheets ต้องมีคอลัมน์ Steam ID' });
+    const records=[]; let skipped=0;
+    for (const line of rows.slice(1)) { const c=csvLine(line); const steamId=(c[steamIdx]||'').replace(/\D/g,''); if(!/^\d{17}$/.test(steamId)){skipped++;continue;} records.push({ steam_id:steamId, discord_id:discordIdIdx>=0?(c[discordIdIdx]||null):null, discord_tag:discordTagIdx>=0?(c[discordTagIdx]||null):null, is_whitelisted:true, whitelisted_at:new Date().toISOString(), updated_at:new Date().toISOString() }); }
+    let synced=0;
+    for(let i=0;i<records.length;i+=200){ const { error }=await supabase.from('players').upsert(records.slice(i,i+200),{onConflict:'steam_id',ignoreDuplicates:false}); if(error) throw error; synced+=Math.min(200,records.length-i); }
+    res.json({ synced, skipped });
+  } catch (e) { adminError(res,e); }
+});
+app.use('/admin/assets', express.static(path.join(__dirname, 'public'), { fallthrough:false }));
 app.use('/', routes);
 app.use('/', Health);
 async function start() {
