@@ -69,6 +69,25 @@
     </section>
   </main>
 
+
+    <div id="editModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+      <section class="card">
+        <h2 id="editTitle">แก้ไขข้อมูลผู้เล่น</h2>
+        <p class="muted">บันทึก Level, EXP, Gold และ Gem ให้ผู้เล่นรายนี้</p>
+        <form id="editForm">
+          <input id="editSteamId" type="hidden">
+          <div class="grid">
+            <div class="field"><label for="editLevel">Level</label><input id="editLevel" type="number" min="1" max="2147483647" step="1" required></div>
+            <div class="field"><label for="editExperience">EXP</label><input id="editExperience" type="number" min="0" max="9007199254740991" step="1" required></div>
+            <div class="field"><label for="editGold">Gold</label><input id="editGold" type="number" min="0" max="9007199254740991" step="1" required></div>
+            <div class="field"><label for="editGem">Gem</label><input id="editGem" type="number" min="0" max="9007199254740991" step="1" required></div>
+          </div>
+          <p class="hint">ใช้ค่าตัวเลขจำนวนเต็มเท่านั้น ระบบจะไม่แก้ข้อมูลจนกว่าจะกดบันทึกและยืนยัน</p>
+          <div class="form-actions"><button id="cancelEdit" type="button" class="secondary">ยกเลิก</button><button id="saveEdit" type="submit">บันทึกข้อมูล</button></div>
+        </form>
+      </section>
+    </div>
+
   <script>
     const $ = (id) => document.getElementById(id);
     let csrf = '';
@@ -143,6 +162,13 @@
           const banText = activeBan ? (until ? `แบนถึง ${until.toLocaleString('th-TH')}` : 'แบนถาวร') : (event.isBanned ? 'หมดเวลาแบน' : 'ปกติ');
           cell(tr, banText);
           const actions = document.createElement('td'); actions.className = 'actions';
+          if (currentView === 'players') {
+            const edit = document.createElement('button');
+            edit.textContent = 'แก้ข้อมูล';
+            edit.className = 'secondary';
+            edit.addEventListener('click', () => openEditPlayer(event));
+            actions.append(edit);
+          }
           const ban = document.createElement('button');
           ban.textContent = event.isBanned ? 'ปลดแบน' : 'แบน';
           ban.className = event.isBanned ? 'secondary' : 'danger';
@@ -152,6 +178,44 @@
         tell('');
       } catch (error) { tell(error.message); }
     }
+
+    function openEditPlayer(player) {
+      $('editSteamId').value = player.steamId || '';
+      $('editLevel').value = Number(player.level ?? 1);
+      $('editExperience').value = Number(player.experience ?? 0);
+      $('editGold').value = Number(player.gold ?? 0);
+      $('editGem').value = Number(player.gem ?? 0);
+      $('editModal').classList.remove('hidden');
+      $('editLevel').focus();
+    }
+    function closeEditPlayer() { $('editModal').classList.add('hidden'); }
+    $('cancelEdit').addEventListener('click', closeEditPlayer);
+    $('editModal').addEventListener('click', (event) => { if (event.target === $('editModal')) closeEditPlayer(); });
+    $('editForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const steamId = $('editSteamId').value;
+      const payload = {
+        level: Number($('editLevel').value),
+        experience: Number($('editExperience').value),
+        gold: Number($('editGold').value),
+        gem: Number($('editGem').value)
+      };
+      if (!steamId || Object.values(payload).some(value => !Number.isSafeInteger(value) || value < 0) || payload.level < 1) {
+        tell('ตรวจสอบค่า Level, EXP, Gold และ Gem ให้เป็นจำนวนเต็มที่ถูกต้องก่อนบันทึก');
+        return;
+      }
+      if (!confirm(`ยืนยันบันทึกข้อมูล Level/EXP/Gold/Gem ของผู้เล่น ${steamId}?`)) return;
+      const save = $('saveEdit'); save.disabled = true;
+      try {
+        await api(`/admin/api/players/${encodeURIComponent(steamId)}`, { method: 'PUT', body: JSON.stringify(payload) });
+        closeEditPlayer();
+        tell('บันทึกข้อมูลผู้เล่นแล้ว', true);
+        await loadPlayers();
+      } catch (error) {
+        tell(`บันทึกไม่สำเร็จ: ${error.message}`);
+      } finally { save.disabled = false; }
+    });
+
     async function loadLauncherStatus() {
       try {
         const data = await api('/admin/api/launcher');
