@@ -2600,4 +2600,73 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 start();
+app.post('/api/whitelist/approve', async (req, res) => {
+  try {
+    const suppliedSecret = req.get('x-whitelist-secret');
+    const expectedSecret = process.env.WHITELIST_WEBHOOK_SECRET;
 
+    if (!expectedSecret) {
+      return res.status(500).json({
+        error: 'Whitelist webhook is not configured'
+      });
+    }
+
+    if (
+      typeof suppliedSecret !== 'string' ||
+      suppliedSecret.length !== expectedSecret.length ||
+      !require('crypto').timingSafeEqual(
+        Buffer.from(suppliedSecret),
+        Buffer.from(expectedSecret)
+      )
+    ) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { steamId, discordId, displayName, discordTag } = req.body || {};
+
+    if (
+      typeof steamId !== 'string' ||
+      !/^\d{17}$/.test(steamId.trim()) ||
+      typeof discordId !== 'string' ||
+      !discordId.trim() ||
+      typeof displayName !== 'string' ||
+      !displayName.trim()
+    ) {
+      return res.status(400).json({
+        error: 'Invalid or missing whitelist fields'
+      });
+    }
+
+    const player = {
+      steam_id: steamId.trim(),
+      discord_id: discordId.trim(),
+      display_name: displayName.trim(),
+      discord_tag: typeof discordTag === 'string'
+        ? discordTag.trim() || null
+        : null,
+      is_whitelisted: true,
+      whitelisted_at: new Date().toISOString()
+    };
+
+    const { data, error } = await supabase
+      .from('players')
+      .upsert(player, { onConflict: 'steam_id' })
+      .select('steam_id')
+      .single();
+
+    if (error) {
+      console.error('Whitelist Supabase error:', error);
+      return res.status(500).json({
+        error: 'Failed to update whitelist'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      steamId: data.steam_id
+    });
+  } catch (err) {
+    console.error('Whitelist endpoint error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
