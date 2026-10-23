@@ -2553,9 +2553,6 @@ app.post('/admin/api/whitelist/sync', requireAdmin, async (req, res) => {
     res.json({ synced, skipped });
   } catch (e) { adminError(res,e); }
 });
-const path = require('path');
-
-// Serve the admin page
 app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
