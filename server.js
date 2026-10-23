@@ -2553,17 +2553,54 @@ app.post('/admin/api/whitelist/sync', requireAdmin, async (req, res) => {
     res.json({ synced, skipped });
   } catch (e) { adminError(res,e); }
 });
-app.use('/admin/assets', express.static(path.join(__dirname, 'public'), { fallthrough:false }));
+const path = require('path');
+
+// Serve the admin page
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
+// Serve admin CSS, JS and other static assets
+app.use(
+  '/admin/assets',
+  express.static(path.join(__dirname, 'public'), {
+    fallthrough: false
+  })
+);
+
+// Existing routes
 app.use('/', routes);
 app.use('/', Health);
+
 async function start() {
   try {
-    const { error } = await supabase.from('server_settings').select('id').eq('id', 'main').maybeSingle();
+    const { error } = await supabase
+      .from('server_settings')
+      .select('id')
+      .eq('id', 'main')
+      .maybeSingle();
+
     if (error) throw error;
+
     console.log('Supabase connected and reachable');
-    app.listen(config.port, () => { console.log('Server running on port ' + config.port); console.log('Environment: ' + config.env); });
-  } catch (err) { console.error('Startup error:', err.message); process.exit(1); }
+
+    app.listen(config.port, () => {
+      console.log('Server running on port ' + config.port);
+      console.log('Environment: ' + config.env);
+    });
+  } catch (err) {
+    console.error('Startup error:', err.message);
+    process.exit(1);
+  }
 }
-async function shutdown() { console.log('Shutdown complete'); process.exit(0); }
-process.on('SIGINT', shutdown); process.on('SIGTERM', shutdown);
+
+async function shutdown() {
+  console.log('Shutdown complete');
+  process.exit(0);
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
 start();
+
