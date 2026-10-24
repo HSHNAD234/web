@@ -42,6 +42,12 @@
 
 `PORT` Render กำหนดให้อัตโนมัติ ไม่ต้องเพิ่มเอง หน้าแอดมินอยู่ที่ `https://<ชื่อบริการ>.onrender.com/admin`
 
+## Game API data tables
+
+สำหรับ deployment ที่ต้องใช้ข้อมูลโบนัส กล่องจดหมาย แบนเนอร์กาชา และความคืบหน้าสมบัติ ให้รัน [migrations/game-api-migration.sql](migrations/game-api-migration.sql) ใน Supabase SQL Editor หลังตรวจว่าเป็นโปรเจกต์เดียวกับเว็บไซต์และตาราง `public.players` เดิมแล้ว การ migration นี้เป็นแบบเพิ่มตาราง ไม่สร้างฐานข้อมูลผู้เล่นชุดใหม่
+
+หลังรัน migration ต้องเติมข้อมูลจริงลงตารางที่เกี่ยวข้อง และทดสอบ JSON response กับ protocol ของเกมก่อนเปิดใช้งานจริง ดู [คู่มือตรวจสอบ Game API](docs/GAME-API-ROLLOUT-CHECKLIST.md) ด้วย
+
 ## จัดการ Launcher
 
 แอดมินตั้งเวลาปิดได้ 1–10,080 นาที backend บันทึก `is_online` และ `closed_until` ใน `server_settings`; `/live/checkversion` ส่ง `IsOnline` กับ `ClosedUntil` ให้ Launcher และเปิดสถานะอัตโนมัติเมื่อครบเวลา
