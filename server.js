@@ -2594,6 +2594,141 @@ app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
+
+// Hosts Registry — additive API; player and game API routes remain unchanged.
+const HOST_REGISTRY_DOMAINS = Object.freeze([
+  'api.homesweethomegame.com',
+  'hshsapi.homesweethomegame.com',
+  'logapi.homesweethomegame.com',
+  'boatltpk'
+]);
+
+function shapeHostRegistryRows(rows) {
+  const byDomain = new Map((rows || []).map(row => [row.domain, row]));
+  const hosts = HOST_REGISTRY_DOMAINS.map(domain => {
+    const row = byDomain.get(domain);
+    if (!row) return null;
+    return {
+      domain,
+      enabled: row.enabled === true,
+      purpose: String(row.purpose || ''),
+      note: String(row.note || ''),
+      updatedAt: row.updated_at || row.updatedAt || null
+    };
+  });
+  if (hosts.some(host => !host)) {
+    throw new Error('ทะเบียน Hosts ในฐานข้อมูลไม่ครบทุกโดเมน');
+  }
+  return hosts;
+}
+
+async function readHostRegistry() {
+  const { data, error } = await supabase
+    .from('host_registry')
+    .select('domain,enabled,purpose,note,updated_at');
+  if (error) throw error;
+  return shapeHostRegistryRows(data || []);
+}
+
+// Public, read-only endpoint for HSHONAD Launcher.
+app.get('/api/hosts-config', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const hosts = await readHostRegistry();
+    const latest = hosts.reduce((max, host) => {
+      const time = host.updatedAt ? Date.parse(host.updatedAt) : 0;
+      return Math.max(max, Number.isFinite(time) ? time : 0);
+    }, 0);
+    res.json({
+      version: 1,
+      updatedAt: latest ? new Date(latest).toISOString() : null,
+      hosts
+    });
+  } catch (error) {
+    console.error('[hosts-registry] public read failed:', error && error.message ? error.message : error);
+    res.status(503).json({ ok: false, message: 'อ่านทะเบียน Hosts ไม่สำเร็จ' });
+  }
+});
+
+// Authenticated, CSRF-protected endpoints for the existing Admin page.
+app.get('/admin/api/hosts', requireAdmin, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const hosts = await readHostRegistry();
+    res.json({ hosts });
+  } catch (error) {
+    adminError(res, error);
+  }
+});
+
+app.put('/admin/api/hosts', requireAdmin, async (req, res) => {
+  try {
+    const input = req.body && req.body.hosts;
+    if (!Array.isArray(input) || input.length !== HOST_REGISTRY_DOMAINS.length) {
+      return res.status(400).json({ message: 'ต้องส่งโดเมนที่กำหนดไว้ครบทั้ง 4 รายการ' });
+    }
+
+    const seen = new Set();
+    const hosts = [];
+    for (const item of input) {
+      const domain = String(item && item.domain || '');
+      if (!HOST_REGISTRY_DOMAINS.includes(domain) || seen.has(domain)) {
+        return res.status(400).json({ message: 'มีโดเมนซ้ำหรือเป็นโดเมนที่ไม่ได้รับอนุญาต' });
+      }
+      if (!item || typeof item.enabled !== 'boolean') {
+        return res.status(400).json({ message: 'สถานะ enabled ต้องเป็น true หรือ false' });
+      }
+      if (typeof item.purpose !== 'string' || item.purpose.length > 120 ||
+          typeof item.note !== 'string' || item.note.length > 160) {
+        return res.status(400).json({ message: 'วัตถุประสงค์ต้องไม่เกิน 120 ตัวอักษร และหมายเหตุต้องไม่เกิน 160 ตัวอักษร' });
+      }
+      seen.add(domain);
+      hosts.push({
+        domain,
+        enabled: item.enabled,
+        purpose: item.purpose.trim(),
+        note: item.note.trim()
+      });
+    }
+    if (HOST_REGISTRY_DOMAINS.some(domain => !seen.has(domain))) {
+      return res.status(400).json({ message: 'ต้องส่งโดเมนที่กำหนดไว้ครบทั้ง 4 รายการ' });
+    }
+
+    const { data, error } = await supabase.rpc('save_host_registry', { p_hosts: hosts });
+    if (error) throw error;
+    res.json({
+      ok: true,
+      hosts: shapeHostRegistryRows(Array.isArray(data) ? data : []),
+      message: 'บันทึก Hosts Registry ลง Supabase แล้ว'
+    });
+  } catch (error) {
+    adminError(res, error);
+  }
+});
+
+app.get('/admin/api/hosts/audit', requireAdmin, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const { data, error } = await supabase
+      .from('host_registry_audit')
+      .select('id,changed_at,actor,before_state,after_state')
+      .order('id', { ascending: false })
+      .limit(25);
+    if (error) throw error;
+    res.json({
+      audit: (data || []).map(row => ({
+        id: row.id,
+        changedAt: row.changed_at,
+        actor: row.actor,
+        beforeState: row.before_state,
+        afterState: row.after_state
+      }))
+    });
+  } catch (error) {
+    adminError(res, error);
+  }
+});
+
 // Serve admin CSS, JS and other static assets
 app.use(
   '/admin/assets',
