@@ -9,6 +9,22 @@
 3. ใน Supabase Project Settings / API Keys คัดลอก **Project URL** และ **Secret key** (หรือ service role secret ถ้ามี UI แบบเดิม)
 4. ห้ามใช้ publishable/anon key เป็น `SUPABASE_SECRET_KEY` และห้ามส่ง secret key ให้หน้าเว็บหรือ commit ลง GitHub
 
+
+## Hosts Registry สำหรับ HSHONAD Launcher
+
+หน้า Admin เดิมที่ `/admin` จัดการทั้งข้อมูลผู้เล่น/Whitelist และทะเบียน Hosts Registry โดยยังใช้ Supabase project เดียวกัน ทั้งสองส่วนอยู่คนละตารางและ endpoint จึงไม่ต้องแก้ schema ของผู้เล่นเมื่อแก้ทะเบียนโดเมน
+
+- ตาราง `public.host_registry`: เก็บโดเมนที่อนุญาต 4 รายการ, สถานะ, วัตถุประสงค์, หมายเหตุ และเวลาอัปเดต
+- ตาราง `public.host_registry_audit`: เก็บสถานะก่อน/หลังการบันทึกสำหรับตรวจสอบย้อนหลัง
+- `GET /api/hosts-config`: endpoint อ่านอย่างเดียวสำหรับ Launcher; ส่ง `version`, `updatedAt`, และ `hosts[]`
+- `GET /admin/api/hosts`: อ่านทะเบียนในหน้า Admin หลังเข้าสู่ระบบ
+- `PUT /admin/api/hosts`: บันทึกทะเบียน ต้องใช้ admin session และ `X-Admin-CSRF`
+- `GET /admin/api/hosts/audit`: ประวัติการบันทึกเฉพาะผู้ดูแลระบบ
+
+สำหรับฐานข้อมูลที่ตั้งไว้แล้ว การเพิ่ม schema ใช้ `CREATE TABLE IF NOT EXISTS` และ seed แบบ `ON CONFLICT DO NOTHING` จึงไม่เขียนทับค่าในทะเบียนที่มีอยู่ ใช้ `schema.sql` สำหรับตั้งฐานข้อมูลใหม่หรืออ้างอิง schema ฉบับรวม
+
+**ขอบเขตความปลอดภัย:** ตาราง Registry เปิด RLS และปิดสิทธิ์ `anon` / `authenticated`; เฉพาะ backend ที่ใช้ secret key ฝั่ง server เท่านั้นที่อ่าน/เขียนฐานข้อมูลโดยตรงได้ Endpoint สาธารณะส่งเฉพาะ metadata ของโดเมนที่กำหนดไว้ ไม่ส่ง credential หรือ IP และไม่แก้ไข Windows Hosts / network routing
+
 ## Deploy บน Render
 
 1. ใส่ไฟล์ในโฟลเดอร์นี้เข้า repository ที่เชื่อมกับ Render โดยให้ `server.js`, `package.json`, `schema.sql` และ `public/admin.html` อยู่ใต้ Root Directory เดียวกัน
@@ -18,7 +34,7 @@
 | Key | Value |
 | --- | --- |
 | `SUPABASE_URL` | Project URL ของ Supabase |
-| `SUPABASE_SECRET_KEY` | Secret key สำหรับ backend เท่านั้น |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role secret สำหรับ backend เท่านั้น (ห้ามเผยแพร่ใน browser) |
 | `ADMIN_PASSWORD` | รหัสผ่านหน้าแอดมิน |
 | `ADMIN_SESSION_SECRET` | สุ่มลับยาวอย่างน้อย 32 ตัวอักษร |
 | `STEAM_APP_ID` | `1898080` (มีค่าเริ่มต้นอยู่แล้ว) |
