@@ -371,8 +371,9 @@ exports.checkVersion = async (req, res) => {
       return sendError(
         res,
         200,
-        'Server cannot be played during maintenance',
+        'server_closed',
         {
+          code: 'server_closed',
           serverInfo: {
             ...formattedServerInfo,
             correctversion: false,
@@ -2423,6 +2424,9 @@ function playerForAdmin(row) {
     displayName: row.display_name || data.profile?.displayName || 'Player',
     discordId: row.discord_id || data.discordId || '',
     discordTag: row.discord_tag || data.discordTag || '',
+    coin: Number(row.coin ?? data.coin ?? 0),
+    role: row.role || data.role || 'survivor',
+    isOnline: Boolean(row.is_online),
     isBanned: Boolean(row.is_banned),
     bannedUntil: row.banned_until || null,
     banReason: row.ban_reason || '',
@@ -2462,7 +2466,7 @@ app.get('/admin/api/players', requireAdmin, async (req, res) => {
   try {
     const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1));
     const pageSize = 50; const q = String(req.query.q || '').trim().slice(0, 100);
-    let query = supabase.from('players').select('steam_id,display_name,discord_id,discord_tag,is_whitelisted,is_banned,banned_until,ban_reason,level,experience,gold,gem,api_data,created_at,updated_at', { count: 'exact' });
+    let query = supabase.from('players').select('steam_id,display_name,discord_id,discord_tag,is_whitelisted,is_banned,banned_until,ban_reason,level,experience,gold,gem,coin,role,is_online,api_data,created_at,updated_at', { count: 'exact' });
     if (q) {
       const safe = q.replace(/[,%()]/g, ' ');
       query = query.or(`steam_id.ilike.%${safe}%,display_name.ilike.%${safe}%,discord_tag.ilike.%${safe}%,discord_id.ilike.%${safe}%`);
@@ -2529,8 +2533,21 @@ app.put('/admin/api/players/:steamId/ban', requireAdmin, async (req, res) => {
     if (!/^\d{17}$/.test(steamId)) return res.status(400).json({ message: 'Steam ID ต้องเป็นตัวเลข 17 หลัก' });
     const permanent = req.body?.permanent === true; const minutes = Number(req.body?.minutes);
     if (!permanent && (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 525600)) return res.status(400).json({ message: 'ระยะเวลาแบนไม่ถูกต้อง' });
-    const { data: existing, error: readError } = await supabase.from('players').select('api_data').eq('steam_id', steamId).maybeSingle();
-    if (readError) throw readError; if (!existing) return res.status(404).json({ message: 'ไม่พบผู้เล่น' });
+    const suppliedDiscordId = String(req.body?.discordId || '').trim();
+    if (!/^\d{17,20}$/.test(suppliedDiscordId)) {
+      return res.status(400).json({ message: 'กรุณาระบุ Discord ID ที่ถูกต้องเพื่อยืนยันตัวผู้เล่น' });
+    }
+    const { data: existing, error: readError } = await supabase
+      .from('players')
+      .select('discord_id,api_data')
+      .eq('steam_id', steamId)
+      .maybeSingle();
+    if (readError) throw readError;
+    if (!existing) return res.status(404).json({ message: 'ไม่พบผู้เล่น' });
+    const storedDiscordId = String(existing.discord_id || existing.api_data?.discordId || '').trim();
+    if (!storedDiscordId || storedDiscordId !== suppliedDiscordId) {
+      return res.status(409).json({ message: 'Steam ID และ Discord ID ไม่ตรงกับบัญชีผู้เล่นเดียวกัน จึงไม่ดำเนินการแบน' });
+    }
     const bannedUntil = permanent ? null : new Date(Date.now() + minutes*60000).toISOString();
     const reason = String(req.body?.reason || '').slice(0, 500);
     const apiData = { ...(existing.api_data || {}), banStatus: { permanentBanned: permanent, bannedUntil, reason } };
