@@ -28,7 +28,7 @@ jobs:
           const server = fs.readFileSync('server.js', 'utf8');
           const schema = fs.readFileSync('schema.sql', 'utf8');
 
-          const scripts = [...html.matchAll(/<script\\b[^>]*>([\\s\\S]*?)<\\/script>/gi)];
+          const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
           if (scripts.length !== 1) throw new Error('Expected exactly one Admin script');
           new vm.Script(scripts[0][1], { filename: 'public/admin.html inline script' });
 
@@ -40,7 +40,7 @@ jobs:
             [server, "supabase.rpc('save_host_registry'", 'transactional database save'],
             [html, 'id="hostsPanel"', 'Hosts Registry panel'],
             [html, "api('/admin/api/hosts')", 'Admin registry client'],
-            [html, "api('/api/hosts-config')", 'documented public endpoint label'],
+            [html, '/api/hosts-config', 'public endpoint label'],
             [schema, 'create table if not exists public.host_registry', 'registry table'],
             [schema, 'alter table public.host_registry enable row level security', 'registry RLS']
           ];
