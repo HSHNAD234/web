@@ -159,6 +159,17 @@
     @media(prefers-reduced-motion:reduce){
       *,*::before,*::after{transition:none!important;scroll-behavior:auto!important}
     }
+
+    .host-text{width:100%;min-width:170px;background:var(--field);border:1px solid #454854;border-radius:9px;color:var(--text);padding:10px 11px;outline:none}
+    .host-text:focus{border-color:var(--gold);box-shadow:0 0 0 3px #d8b57a1c}
+    .host-enabled{width:18px;height:18px;accent-color:var(--gold);cursor:pointer}
+    .host-domain{min-width:235px;max-width:300px;overflow-wrap:anywhere}
+    .host-audit-list{display:grid;gap:10px;margin-top:12px}
+    .host-audit-item{border:1px solid var(--line);background:#15161b;border-radius:10px;padding:12px}
+    .host-audit-item strong{display:block;color:var(--gold);font-size:12px;margin-bottom:5px}
+    .host-audit-item span{display:block;color:var(--muted);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+    .api-path{font:12px Consolas,monospace;overflow-wrap:anywhere;color:var(--gold)}
+
   </style>
 </head>
 <body>
@@ -174,13 +185,46 @@
     <section id="dashboard" class="hidden">
       <header class="top"><div class="brand"><div class="mark">H</div><div><h1>HSHO Player Admin</h1><p>ผู้เล่น Whitelist และประวัติการใช้ไอเท็ม</p></div></div><button id="logout" class="secondary">ออกจากระบบ</button></header>
       <div class="card status-card"><div><h2>สถานะ Launcher / เซิร์ฟเวอร์</h2><p>เมื่อปิด Launcher ของผู้เล่นจะแสดงหน้า Server is closed พร้อมเวลานับถอยหลัง</p><div class="status-pill"><span id="statusDot" class="dot"></span><span id="statusText">กำลังอ่านสถานะ…</span></div></div><div class="status-controls"><label class="muted" for="closeMinutes">ปิดนาน (นาที)</label><input id="closeMinutes" type="number" min="1" max="10080" value="60" style="width:95px;background:#101116;border:1px solid #454854;border-radius:9px;color:var(--text);padding:10px"><button id="toggleLauncher">กำลังโหลด…</button></div></div>
-      <div class="card">
+      <div class="toolbar admin-main-tabs" role="group" aria-label="ส่วนจัดการ">
+        <button id="playersPanelTab" class="view-tab" aria-pressed="true">ข้อมูลผู้เล่น</button>
+        <button id="hostsPanelTab" class="view-tab secondary" aria-pressed="false">Hosts Registry</button>
+      </div>
+      <div id="playerPanel" class="card">
         <div class="toolbar"><button id="playersTab" class="view-tab" aria-pressed="true">ผู้เล่น Whitelist</button><button id="usageTab" class="view-tab secondary" aria-pressed="false">ประวัติใช้ไอเท็ม</button></div>
         <div class="toolbar"><input id="search" class="search" type="search" placeholder="ค้นหาด้วย Steam ID หรือ Discord Name"><span id="count" class="count"></span><button id="refreshUsage" class="secondary">รีเฟรช</button><button id="syncWhitelist" class="secondary">ซิงก์ Whitelist</button></div>
         <div class="table-wrap"><table><thead id="tableHead"></thead><tbody id="rows"></tbody></table><div id="empty" class="empty hidden"></div></div>
         <div class="toolbar" style="justify-content:flex-end;margin-top:14px"><button id="previousPage" class="secondary">ก่อนหน้า</button><span id="pageInfo" class="count">หน้า 1</span><button id="nextPage" class="secondary">ถัดไป</button></div>
         <p id="notice" class="notice" role="status"></p>
       </div>
+      <section id="hostsPanel" class="card hidden" aria-labelledby="hostsTitle">
+        <div class="toolbar" style="justify-content:space-between;align-items:flex-start">
+          <div style="min-width:240px;flex:1">
+            <h2 id="hostsTitle" style="margin:0 0 7px">Hosts Registry</h2>
+            <p class="muted" style="margin:0">จัดการสถานะ วัตถุประสงค์ และหมายเหตุของโดเมนที่กำหนดไว้ ข้อมูลบันทึกลง Supabase และ Launcher อ่านได้ผ่าน API แบบอ่านอย่างเดียว</p>
+          </div>
+          <div class="actions">
+            <button id="refreshHosts" class="secondary" type="button">โหลดใหม่</button>
+            <button id="saveHosts" type="button">บันทึกทะเบียน</button>
+          </div>
+        </div>
+        <div class="status-pill" style="max-width:100%;align-items:flex-start">
+          <span class="dot online"></span><span>Launcher API:&nbsp; <span id="hostsApiPath" class="api-path"></span></span>
+        </div>
+        <div class="table-wrap" style="margin-top:16px">
+          <table style="min-width:850px">
+            <thead><tr><th>DOMAIN</th><th>เปิดใช้งาน</th><th>วัตถุประสงค์</th><th>หมายเหตุ</th><th>อัปเดตล่าสุด</th></tr></thead>
+            <tbody id="hostsRows"></tbody>
+          </table>
+        </div>
+        <p id="hostsNotice" class="notice" role="status" aria-live="polite"></p>
+        <div style="height:1px;background:var(--line);margin:22px 0 18px"></div>
+        <div class="toolbar" style="justify-content:space-between;margin-bottom:10px">
+          <div><h2 style="font-size:16px;margin:0 0 5px">ประวัติการแก้ไข</h2><p class="muted" style="margin:0">รายการบันทึกล่าสุดของ Hosts Registry</p></div>
+          <button id="refreshHostsAudit" class="secondary" type="button">รีเฟรชประวัติ</button>
+        </div>
+        <div id="hostsAuditList" class="host-audit-list" aria-live="polite"><span class="muted">กดโหลดประวัติเพื่อดูรายการแก้ไข</span></div>
+        <p class="hint" style="margin-top:18px">หมายเหตุ: ทะเบียนนี้เก็บ metadata ของโดเมนเท่านั้น ไม่แก้ไข Windows Hosts และไม่เปลี่ยนเส้นทาง network โดยอัตโนมัติ</p>
+      </section>
     </section>
   </main>
 
@@ -226,6 +270,182 @@
     function showDashboard(token) { csrf = token; $('login').classList.add('hidden'); $('dashboard').classList.remove('hidden'); loadLauncherStatus(); loadPlayers(); }
     function tell(message, ok = false) { $('notice').textContent = message; $('notice').classList.toggle('ok', ok); }
     function cell(row, value, className = '') { const td = document.createElement('td'); td.textContent = value; if (className) td.className = className; row.append(td); return td; }
+
+    const hostDomainOrder = [
+      'api.homesweethomegame.com',
+      'hshsapi.homesweethomegame.com',
+      'logapi.homesweethomegame.com',
+      'boatltpk'
+    ];
+    $('hostsApiPath').textContent = location.origin + '/api/hosts-config';
+
+    function tellHosts(message, ok = false) {
+      $('hostsNotice').textContent = message || '';
+      $('hostsNotice').classList.toggle('ok', ok);
+    }
+
+    function setAdminPanel(panel) {
+      const hostsActive = panel === 'hosts';
+      $('playerPanel').classList.toggle('hidden', hostsActive);
+      $('hostsPanel').classList.toggle('hidden', !hostsActive);
+      $('playersPanelTab').setAttribute('aria-pressed', String(!hostsActive));
+      $('hostsPanelTab').setAttribute('aria-pressed', String(hostsActive));
+      $('playersPanelTab').classList.toggle('secondary', hostsActive);
+      $('hostsPanelTab').classList.toggle('secondary', !hostsActive);
+      if (hostsActive) {
+        loadHosts();
+        loadHostsAudit();
+      }
+    }
+
+    function renderHosts(hosts) {
+      const body = $('hostsRows');
+      body.replaceChildren();
+      const byDomain = new Map((Array.isArray(hosts) ? hosts : []).map(host => [host.domain, host]));
+      for (const domain of hostDomainOrder) {
+        const host = byDomain.get(domain) || { domain, enabled: false, purpose: '', note: '', updatedAt: null };
+        const tr = document.createElement('tr');
+        tr.dataset.domain = domain;
+        const domainCell = document.createElement('td');
+        domainCell.className = 'mono host-domain';
+        domainCell.textContent = domain;
+        tr.appendChild(domainCell);
+
+        const enabledCell = document.createElement('td');
+        const enabled = document.createElement('input');
+        enabled.type = 'checkbox';
+        enabled.className = 'host-enabled';
+        enabled.checked = host.enabled === true;
+        enabled.setAttribute('aria-label', 'เปิดใช้งาน ' + domain);
+        enabledCell.appendChild(enabled);
+        tr.appendChild(enabledCell);
+
+        const purposeCell = document.createElement('td');
+        const purpose = document.createElement('input');
+        purpose.type = 'text';
+        purpose.className = 'host-text host-purpose';
+        purpose.maxLength = 120;
+        purpose.placeholder = 'วัตถุประสงค์';
+        purpose.value = host.purpose || '';
+        purpose.setAttribute('aria-label', 'วัตถุประสงค์ ' + domain);
+        purposeCell.appendChild(purpose);
+        tr.appendChild(purposeCell);
+
+        const noteCell = document.createElement('td');
+        const note = document.createElement('input');
+        note.type = 'text';
+        note.className = 'host-text host-note';
+        note.maxLength = 160;
+        note.placeholder = 'หมายเหตุ';
+        note.value = host.note || '';
+        note.setAttribute('aria-label', 'หมายเหตุ ' + domain);
+        noteCell.appendChild(note);
+        tr.appendChild(noteCell);
+
+        const updatedCell = document.createElement('td');
+        updatedCell.textContent = host.updatedAt && !Number.isNaN(Date.parse(host.updatedAt))
+          ? new Date(host.updatedAt).toLocaleString('th-TH')
+          : '—';
+        updatedCell.className = 'muted';
+        tr.appendChild(updatedCell);
+        body.appendChild(tr);
+      }
+    }
+
+    async function loadHosts() {
+      $('refreshHosts').disabled = true;
+      tellHosts('กำลังโหลด Hosts Registry...');
+      try {
+        const result = await api('/admin/api/hosts');
+        if (!Array.isArray(result.hosts)) throw new Error('รูปแบบข้อมูล Hosts Registry ไม่ถูกต้อง');
+        renderHosts(result.hosts);
+        tellHosts('โหลด Hosts Registry จาก Supabase แล้ว', true);
+      } catch (error) {
+        tellHosts('โหลดไม่สำเร็จ: ' + error.message);
+      } finally {
+        $('refreshHosts').disabled = false;
+      }
+    }
+
+    async function saveHosts() {
+      const button = $('saveHosts');
+      const hosts = Array.from($('hostsRows').querySelectorAll('tr')).map(tr => ({
+        domain: tr.dataset.domain,
+        enabled: tr.querySelector('.host-enabled').checked,
+        purpose: tr.querySelector('.host-purpose').value.trim(),
+        note: tr.querySelector('.host-note').value.trim()
+      }));
+      button.disabled = true;
+      tellHosts('กำลังบันทึก Hosts Registry...');
+      try {
+        const result = await api('/admin/api/hosts', {
+          method: 'PUT',
+          body: JSON.stringify({ hosts })
+        });
+        renderHosts(result.hosts || hosts);
+        tellHosts(result.message || 'บันทึก Hosts Registry แล้ว', true);
+        await loadHostsAudit();
+      } catch (error) {
+        tellHosts('บันทึกไม่สำเร็จ: ' + error.message);
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function summariseHostState(state) {
+      if (!Array.isArray(state)) return 'ไม่มีข้อมูล';
+      return state.map(host => host.domain + ': ' + (host.enabled ? 'เปิด' : 'ปิด')).join(' · ');
+    }
+
+    async function loadHostsAudit() {
+      const box = $('hostsAuditList');
+      box.replaceChildren();
+      const loading = document.createElement('span');
+      loading.className = 'muted';
+      loading.textContent = 'กำลังโหลดประวัติ...';
+      box.appendChild(loading);
+      try {
+        const result = await api('/admin/api/hosts/audit');
+        box.replaceChildren();
+        if (!Array.isArray(result.audit) || result.audit.length === 0) {
+          const empty = document.createElement('span');
+          empty.className = 'muted';
+          empty.textContent = 'ยังไม่มีประวัติการแก้ไข';
+          box.appendChild(empty);
+          return;
+        }
+        for (const row of result.audit) {
+          const item = document.createElement('div');
+          item.className = 'host-audit-item';
+          const title = document.createElement('strong');
+          const when = row.changedAt && !Number.isNaN(Date.parse(row.changedAt))
+            ? new Date(row.changedAt).toLocaleString('th-TH')
+            : 'ไม่ทราบเวลา';
+          title.textContent = when + ' · ' + (row.actor || 'admin');
+          const before = document.createElement('span');
+          before.textContent = 'ก่อน: ' + summariseHostState(row.beforeState);
+          const after = document.createElement('span');
+          after.textContent = 'หลัง: ' + summariseHostState(row.afterState);
+          item.append(title, before, after);
+          box.appendChild(item);
+        }
+      } catch (error) {
+        box.replaceChildren();
+        const message = document.createElement('span');
+        message.className = 'notice';
+        message.textContent = 'อ่านประวัติไม่สำเร็จ: ' + error.message;
+        box.appendChild(message);
+      }
+    }
+
+    $('playersPanelTab').addEventListener('click', () => {
+      setAdminPanel('players');
+      loadPlayers(1);
+    });
+    $('hostsPanelTab').addEventListener('click', () => setAdminPanel('hosts'));
+    $('refreshHosts').addEventListener('click', loadHosts);
+    $('saveHosts').addEventListener('click', saveHosts);
+    $('refreshHostsAudit').addEventListener('click', loadHostsAudit);
 
     async function loadPlayers(page = currentPage) {
       tell('กำลังโหลดข้อมูล…');
