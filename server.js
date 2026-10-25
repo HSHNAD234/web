@@ -371,9 +371,8 @@ exports.checkVersion = async (req, res) => {
       return sendError(
         res,
         200,
-        'server_closed',
+        'Server cannot be played during maintenance',
         {
-          code: 'server_closed',
           serverInfo: {
             ...formattedServerInfo,
             correctversion: false,
@@ -2424,9 +2423,6 @@ function playerForAdmin(row) {
     displayName: row.display_name || data.profile?.displayName || 'Player',
     discordId: row.discord_id || data.discordId || '',
     discordTag: row.discord_tag || data.discordTag || '',
-    coin: Number(row.coin ?? data.coin ?? 0),
-    role: row.role || data.role || 'survivor',
-    isOnline: Boolean(row.is_online),
     isBanned: Boolean(row.is_banned),
     bannedUntil: row.banned_until || null,
     banReason: row.ban_reason || '',
@@ -2466,7 +2462,7 @@ app.get('/admin/api/players', requireAdmin, async (req, res) => {
   try {
     const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1));
     const pageSize = 50; const q = String(req.query.q || '').trim().slice(0, 100);
-    let query = supabase.from('players').select('steam_id,display_name,discord_id,discord_tag,is_whitelisted,is_banned,banned_until,ban_reason,level,experience,gold,gem,coin,role,is_online,api_data,created_at,updated_at', { count: 'exact' });
+    let query = supabase.from('players').select('steam_id,display_name,discord_id,discord_tag,is_whitelisted,is_banned,banned_until,ban_reason,level,experience,gold,gem,api_data,created_at,updated_at', { count: 'exact' });
     if (q) {
       const safe = q.replace(/[,%()]/g, ' ');
       query = query.or(`steam_id.ilike.%${safe}%,display_name.ilike.%${safe}%,discord_tag.ilike.%${safe}%,discord_id.ilike.%${safe}%`);
@@ -2533,21 +2529,8 @@ app.put('/admin/api/players/:steamId/ban', requireAdmin, async (req, res) => {
     if (!/^\d{17}$/.test(steamId)) return res.status(400).json({ message: 'Steam ID ต้องเป็นตัวเลข 17 หลัก' });
     const permanent = req.body?.permanent === true; const minutes = Number(req.body?.minutes);
     if (!permanent && (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 525600)) return res.status(400).json({ message: 'ระยะเวลาแบนไม่ถูกต้อง' });
-    const suppliedDiscordId = String(req.body?.discordId || '').trim();
-    if (!/^\d{17,20}$/.test(suppliedDiscordId)) {
-      return res.status(400).json({ message: 'กรุณาระบุ Discord ID ที่ถูกต้องเพื่อยืนยันตัวผู้เล่น' });
-    }
-    const { data: existing, error: readError } = await supabase
-      .from('players')
-      .select('discord_id,api_data')
-      .eq('steam_id', steamId)
-      .maybeSingle();
-    if (readError) throw readError;
-    if (!existing) return res.status(404).json({ message: 'ไม่พบผู้เล่น' });
-    const storedDiscordId = String(existing.discord_id || existing.api_data?.discordId || '').trim();
-    if (!storedDiscordId || storedDiscordId !== suppliedDiscordId) {
-      return res.status(409).json({ message: 'Steam ID และ Discord ID ไม่ตรงกับบัญชีผู้เล่นเดียวกัน จึงไม่ดำเนินการแบน' });
-    }
+    const { data: existing, error: readError } = await supabase.from('players').select('api_data').eq('steam_id', steamId).maybeSingle();
+    if (readError) throw readError; if (!existing) return res.status(404).json({ message: 'ไม่พบผู้เล่น' });
     const bannedUntil = permanent ? null : new Date(Date.now() + minutes*60000).toISOString();
     const reason = String(req.body?.reason || '').slice(0, 500);
     const apiData = { ...(existing.api_data || {}), banStatus: { permanentBanned: permanent, bannedUntil, reason } };
@@ -2755,6 +2738,254 @@ app.use(
 );
 
 // Existing routes
+// HSHONAD_MISSING_GAME_ENDPOINTS
+// Explicit compatibility routes for requested game endpoints not implemented in this backend bundle.
+// They deliberately return code: 0 + implemented:false instead of pretending an operation succeeded.
+// Replace each handler with the real game-compatible schema/logic before production use.
+// This endpoint is implemented against the existing server_settings row.
+// Keep the game-facing route independent from the Supabase client key: all database
+// access remains server-side in this backend.
+app.all('/logapi/v1/check/serverdetect', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const { data, error } = await supabase
+      .from('server_settings')
+      .select('is_online,closed_until,correct_version,server_version,server_dev_version,is_dev_online,updated_at')
+      .eq('id', 'main')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      return res.status(503).json({
+        code: 1, error_code: 1, success: false, server_closed: true,
+        status: 'server_closed', message: 'Server settings are not configured.'
+      });
+    }
+    const closedUntil = data.closed_until ? Date.parse(data.closed_until) : 0;
+    const maintenanceWindowActive = Number.isFinite(closedUntil) && closedUntil > Date.now();
+    const online = data.is_online === true && !maintenanceWindowActive;
+    return res.status(200).json({
+      code: online ? 0 : 1,
+      error_code: online ? 0 : 1,
+      success: online,
+      server_closed: !online,
+      status: online ? 'online' : 'server_closed',
+      serverInfo: {
+        IsOnline: online,
+        IsDevOnline: data.is_dev_online === true,
+        correctversion: data.correct_version === true,
+        serverVersion: data.server_version,
+        ServerDevVersion: data.server_dev_version,
+        closed_until: data.closed_until,
+        updated_at: data.updated_at
+      }
+    });
+  } catch (error) {
+    console.error('[serverdetect] failed:', error.message);
+    return res.status(503).json({
+      code: 1, error_code: 1, success: false, server_closed: true,
+      status: 'server_closed', message: 'Unable to verify game server status.'
+    });
+  }
+});
+
+// Database-backed game API compatibility handlers. These use the existing
+// Supabase tables only; client-supplied rewards/currency are never applied.
+function readGameIdentity(req) {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const player = Array.isArray(body.Player) ? body.Player[0] : (body.Player || {});
+  const steamId = String(body.steam_id || body.steamId || body.player_id || body.playerId || player.playerId || player.steamId || '').trim();
+  const token = String(body.session_token || body.sessionToken || req.get('x-session-token') || req.get('authorization')?.replace(/^Bearer\s+/i, '') || '').trim();
+  return { body, player, steamId, token };
+}
+
+async function loadPlayerForGame(req, res, { requireToken = true } = {}) {
+  const { steamId, token } = readGameIdentity(req);
+  if (!/^\d{17}$/.test(steamId)) {
+    res.status(400).json({ code: 1, error_code: 1002, success: false, error: 'INVALID_STEAM_ID' });
+    return null;
+  }
+  const { data, error } = await supabase.from('players')
+    .select('steam_id,display_name,level,experience,gold,gem,coin,role,is_banned,banned_until,ban_reason,ban_status,player_stat,player_record,player_record_hunter,player_record_survivor,is_online,last_online,session_token,api_data')
+    .eq('steam_id', steamId).maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    res.status(404).json({ code: 1, error_code: 1004, success: false, error: 'PLAYER_NOT_FOUND' });
+    return null;
+  }
+  if (requireToken && (!token || !data.session_token || token !== data.session_token)) {
+    res.status(401).json({ code: 1, error_code: 1003, success: false, error: 'INVALID_SESSION' });
+    return null;
+  }
+  const banUntil = data.banned_until ? Date.parse(data.banned_until) : 0;
+  const isBanned = data.is_banned === true && (!banUntil || !Number.isFinite(banUntil) || banUntil > Date.now());
+  if (isBanned) {
+    res.status(403).json({ code: 1, error_code: 1005, success: false, banned: true, reason: data.ban_reason || 'Account banned' });
+    return null;
+  }
+  return data;
+}
+
+app.all('/live/player/playerstat/get', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const player = await loadPlayerForGame(req, res);
+    if (!player) return;
+    const { data: statsRow, error } = await supabase.from('player_stats').select('stats,updated_at').eq('steam_id', player.steam_id).maybeSingle();
+    if (error) throw error;
+    res.json({ code: 0, error_code: 0, success: true, playerStat: player.player_stat || {}, stats: statsRow?.stats || {}, updated_at: statsRow?.updated_at || null });
+  } catch (e) {
+    console.error('[playerstat/get]', e.message);
+    res.status(503).json({ code: 1, error_code: 1500, success: false, error: 'PLAYER_STATS_UNAVAILABLE' });
+  }
+});
+
+app.all('/live/player/gameplay/authenstatus', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const player = await loadPlayerForGame(req, res);
+    if (!player) return;
+    res.json({ code: 0, error_code: 0, success: true, authenticated: true, steam_id: player.steam_id, status: 'authenticated' });
+  } catch (e) {
+    console.error('[gameplay/authenstatus]', e.message);
+    res.status(503).json({ code: 1, error_code: 1500, success: false, error: 'AUTH_STATUS_UNAVAILABLE' });
+  }
+});
+
+app.all('/live/player/gameplay/endgamestatus', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const { data, error } = await supabase.from('server_settings').select('is_online,closed_until').eq('id', 'main').maybeSingle();
+    if (error) throw error;
+    const closedUntil = data?.closed_until ? Date.parse(data.closed_until) : 0;
+    const online = data?.is_online === true && !(Number.isFinite(closedUntil) && closedUntil > Date.now());
+    res.status(online ? 200 : 503).json({ code: online ? 0 : 1, error_code: online ? 0 : 1006, success: online, server_closed: !online, status: online ? 'online' : 'server_closed' });
+  } catch (e) {
+    console.error('[gameplay/endgamestatus]', e.message);
+    res.status(503).json({ code: 1, error_code: 1500, success: false, server_closed: true, status: 'server_closed' });
+  }
+});
+
+async function persistMatchEvent(req, res, eventType) {
+  try {
+    const { body, steamId } = readGameIdentity(req);
+    if (!/^\d{17}$/.test(steamId)) return res.status(400).json({ code: 1, error_code: 1002, success: false, error: 'INVALID_STEAM_ID' });
+    // Require a matching current session before accepting player-attributed logs.
+    const player = await loadPlayerForGame(req, res);
+    if (!player) return;
+    const result = { eventType, payload: body, receivedAt: new Date().toISOString() };
+    const { error } = await supabase.from('match_logs').insert({ steam_id: steamId, match_id: String(body.match_id || body.matchId || '').slice(0, 128) || null, mode: eventType, result, played_at: new Date().toISOString() });
+    if (error) throw error;
+    res.json({ code: 0, error_code: 0, success: true, stored: true });
+  } catch (e) {
+    console.error(`[${eventType}] persistence failed:`, e.message);
+    res.status(503).json({ code: 1, error_code: 1500, success: false, error: 'EVENT_PERSISTENCE_FAILED' });
+  }
+}
+
+app.all('/live/player/gameplay/endgameresult', (req, res) => persistMatchEvent(req, res, 'endgameresult'));
+app.all('/logapi/v1/add/matchlog', (req, res) => persistMatchEvent(req, res, 'matchlog'));
+app.all('/logapi/v1/add/ingame', (req, res) => persistMatchEvent(req, res, 'ingame'));
+
+app.all('/logapi/v1/check/penalty', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const { steamId } = readGameIdentity(req);
+    if (!/^\d{17}$/.test(steamId)) return res.status(400).json({ code: 1, error_code: 1002, success: false, error: 'INVALID_STEAM_ID' });
+    const { data, error } = await supabase.from('players').select('is_banned,banned_until,ban_reason').eq('steam_id', steamId).maybeSingle();
+    if (error) throw error;
+    if (!data) return res.status(404).json({ code: 1, error_code: 1004, success: false, error: 'PLAYER_NOT_FOUND' });
+    const until = data.banned_until ? Date.parse(data.banned_until) : 0;
+    const banned = data.is_banned === true && (!until || !Number.isFinite(until) || until > Date.now());
+    res.json({ code: 0, error_code: 0, success: true, penalized: banned, banned, reason: banned ? (data.ban_reason || 'Account banned') : null, banned_until: data.banned_until || null });
+  } catch (e) {
+    console.error('[check/penalty]', e.message);
+    res.status(503).json({ code: 1, error_code: 1500, success: false, error: 'PENALTY_CHECK_UNAVAILABLE' });
+  }
+});
+
+app.all('/logapi/v1/add/errorlog', (req, res) => {
+  // Do not echo secrets or arbitrary stack traces back to game clients.
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  console.warn('[game-error]', JSON.stringify({ code: String(body.code || body.errorCode || '').slice(0, 64), message: String(body.message || '').slice(0, 500), at: new Date().toISOString() }));
+  res.json({ code: 0, error_code: 0, success: true, stored: false, note: 'Logged to service output; persistent error-log table is not configured.' });
+});
+
+// Data-backed handlers for the final five game endpoints. Apply the companion
+// migration before enabling these routes. Never grant rewards based on client input.
+app.all('/live/player/gameplay/callback', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const player = await loadPlayerForGame(req, res);
+    if (!player) return;
+    res.json({ code: 0, error_code: 0, success: true, authenticated: true,
+      steam_id: player.steam_id, status: 'callback_accepted' });
+  } catch (e) {
+    console.error('[gameplay/callback]', e.message);
+    res.status(503).json({ code: 1, error_code: 1500, success: false, error: 'CALLBACK_UNAVAILABLE' });
+  }
+});
+
+app.all('/live/bonus/api/get_bonus_data', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('game_bonus_data')
+      .select('bonus_id,payload,is_active,starts_at,ends_at').eq('is_active', true);
+    if (error) throw error;
+    const now = Date.now();
+    const active = (data || []).filter(x => (!x.starts_at || Date.parse(x.starts_at) <= now) && (!x.ends_at || Date.parse(x.ends_at) > now));
+    res.json({ code: 0, error_code: 0, success: true, data: active.map(x => ({ bonusId: x.bonus_id, ...(x.payload || {}) })) });
+  } catch (e) {
+    console.error('[bonus/get_bonus_data]', e.message);
+    res.status(503).json({ code: 1, error_code: 1500, success: false, error: 'BONUS_DATA_UNAVAILABLE' });
+  }
+});
+
+app.all('/live/mailbox/get', async (req, res) => {
+  try {
+    const player = await loadPlayerForGame(req, res);
+    if (!player) return;
+    const { data, error } = await supabase.from('game_mailbox')
+      .select('mail_id,payload,created_at,expires_at,claimed_at').eq('steam_id', player.steam_id).order('created_at', { ascending: false }).limit(100);
+    if (error) throw error;
+    const now = Date.now();
+    const mails = (data || []).filter(m => !m.expires_at || Date.parse(m.expires_at) > now)
+      .map(m => ({ mailId: m.mail_id, ...(m.payload || {}), createdAt: m.created_at, claimed: !!m.claimed_at }));
+    res.json({ code: 0, error_code: 0, success: true, mailbox: mails, data: mails });
+  } catch (e) {
+    console.error('[mailbox/get]', e.message);
+    res.status(503).json({ code: 1, error_code: 1500, success: false, error: 'MAILBOX_UNAVAILABLE' });
+  }
+});
+
+app.all('/live/gacha/static/api/banner', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('game_gacha_banners')
+      .select('banner_id,payload,is_active,starts_at,ends_at').eq('is_active', true).order('sort_order', { ascending: true });
+    if (error) throw error;
+    const now = Date.now();
+    const banners = (data || []).filter(b => (!b.starts_at || Date.parse(b.starts_at) <= now) && (!b.ends_at || Date.parse(b.ends_at) > now))
+      .map(b => ({ bannerId: b.banner_id, ...(b.payload || {}) }));
+    res.json({ code: 0, error_code: 0, success: true, banners, data: banners });
+  } catch (e) {
+    console.error('[gacha/banner]', e.message);
+    res.status(503).json({ code: 1, error_code: 1500, success: false, error: 'GACHA_BANNERS_UNAVAILABLE' });
+  }
+});
+
+app.all('/live/treasure/api/progress/get', async (req, res) => {
+  try {
+    const player = await loadPlayerForGame(req, res);
+    if (!player) return;
+    const { data, error } = await supabase.from('game_treasure_progress')
+      .select('progress').eq('steam_id', player.steam_id).maybeSingle();
+    if (error) throw error;
+    const progress = data?.progress || {};
+    res.json({ code: 0, error_code: 0, success: true, progress, data: progress });
+  } catch (e) {
+    console.error('[treasure/progress]', e.message);
+    res.status(503).json({ code: 1, error_code: 1500, success: false, error: 'TREASURE_PROGRESS_UNAVAILABLE' });
+  }
+});
+
 app.use('/', routes);
 app.use('/', Health);
 
