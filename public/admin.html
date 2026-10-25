@@ -30,7 +30,7 @@
       color:var(--text);
       font:15px "Segoe UI",Tahoma,sans-serif
     }
-    button,input{font:inherit}
+    button,input,select,textarea{font:inherit}
     button{
       cursor:pointer;
       border:1px solid transparent;
@@ -83,7 +83,7 @@
     p{line-height:1.6}
     .field{display:grid;gap:7px;margin:14px 0}
     .field label{font-size:13px;color:var(--muted)}
-    .field input,.search,#closeMinutes{
+    .field input,.search,.field select,#closeMinutes{
       width:100%;background:var(--field);border:1px solid #454854;
       border-radius:9px;color:var(--text);padding:11px 12px;outline:none
     }
@@ -191,10 +191,11 @@
       </div>
       <div id="playerPanel" class="card">
         <div class="toolbar"><button id="playersTab" class="view-tab" aria-pressed="true">ผู้เล่น Whitelist</button><button id="usageTab" class="view-tab secondary" aria-pressed="false">ประวัติใช้ไอเท็ม</button></div>
-        <div class="toolbar"><input id="search" class="search" type="search" placeholder="ค้นหาด้วย Steam ID หรือ Discord Name"><span id="count" class="count"></span><button id="refreshUsage" class="secondary">รีเฟรช</button><button id="syncWhitelist" class="secondary">ซิงก์ Whitelist</button></div>
+        <div class="toolbar"><input id="search" class="search" type="search" placeholder="ค้นหา Steam ID, ชื่อผู้เล่น หรือ Discord"><select id="roleFilter" class="search" aria-label="กรอง Role" style="max-width:180px"><option value="">ทุก Role</option><option value="survivor">survivor</option><option value="hunter">hunter</option><option value="admin">admin</option></select><select id="statusFilter" class="search" aria-label="กรองสถานะ" style="max-width:200px"><option value="">ทุกสถานะ</option><option value="banned">ถูกแบน</option><option value="active">ไม่ถูกแบน</option><option value="whitelisted">Whitelist</option><option value="not-whitelisted">ไม่อยู่ใน Whitelist</option></select><span id="count" class="count"></span><button id="refreshUsage" class="secondary">รีเฟรช</button><button id="syncWhitelist" class="secondary">ซิงก์ Whitelist</button><button id="refreshAudit" class="secondary">Audit Log</button></div>
         <div class="table-wrap"><table><thead id="tableHead"></thead><tbody id="rows"></tbody></table><div id="empty" class="empty hidden"></div></div>
         <div class="toolbar" style="justify-content:flex-end;margin-top:14px"><button id="previousPage" class="secondary">ก่อนหน้า</button><span id="pageInfo" class="count">หน้า 1</span><button id="nextPage" class="secondary">ถัดไป</button></div>
         <p id="notice" class="notice" role="status"></p>
+        <section id="playerAuditPanel" class="hidden" style="margin-top:18px"><div class="toolbar" style="justify-content:space-between"><h2 style="margin:0;font-size:16px">ประวัติการแก้ไขผู้เล่น / Inventory</h2><button id="closeAudit" class="secondary" type="button">ซ่อน</button></div><div id="playerAuditRows" class="host-audit-list"></div></section>
       </div>
       <section id="hostsPanel" class="card hidden" aria-labelledby="hostsTitle">
         <div class="toolbar" style="justify-content:space-between;align-items:flex-start">
@@ -232,18 +233,47 @@
     <div id="editModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="editTitle">
       <section class="card">
         <h2 id="editTitle">แก้ไขข้อมูลผู้เล่น</h2>
-        <p class="muted">บันทึก Level, EXP, Gold และ Gem ให้ผู้เล่นรายนี้</p>
+        <p class="muted">แก้ไขข้อมูลผู้เล่นที่ระบบรองรับ ข้อมูล Steam ID และ Discord ใช้ระบุตัวตนจึงไม่แก้จากหน้านี้</p>
         <form id="editForm">
           <input id="editSteamId" type="hidden">
           <div class="grid">
             <div class="field"><label for="editLevel">Level</label><input id="editLevel" type="number" min="1" max="2147483647" step="1" required></div>
             <div class="field"><label for="editExperience">EXP</label><input id="editExperience" type="number" min="0" max="9007199254740991" step="1" required></div>
             <div class="field"><label for="editGold">Gold</label><input id="editGold" type="number" min="0" max="9007199254740991" step="1" required></div>
-            <div class="field"><label for="editGem">Gem</label><input id="editGem" type="number" min="0" max="9007199254740991" step="1" required></div>
+            <div class="field"><label for="editGem">Gem</label><input id="editGem" type="number" min="0" max="2147483647" step="1" required></div>
+            <div class="field"><label for="editCoin">Coin</label><input id="editCoin" type="number" min="0" max="2147483647" step="1" required></div>
+            <div class="field"><label for="editDisplayName">ชื่อผู้เล่น</label><input id="editDisplayName" maxlength="64" required></div>
+            <div class="field"><label for="editRole">Role</label><input id="editRole" maxlength="40" required></div>
+            <div class="field"><label for="editWhitelist">Whitelist</label><select id="editWhitelist" class="search"><option value="true">อนุญาต</option><option value="false">ไม่อนุญาต</option></select></div>
           </div>
-          <p class="hint">ใช้ค่าตัวเลขจำนวนเต็มเท่านั้น ระบบจะไม่แก้ข้อมูลจนกว่าจะกดบันทึกและยืนยัน</p>
+          <div class="field"><label for="editApiData">ข้อมูลเกมขั้นสูง (JSON) — ไม่รวม Auth/Session Token</label><textarea id="editApiData" rows="8" spellcheck="false" style="width:100%;background:var(--field);border:1px solid #454854;border-radius:9px;color:var(--text);padding:12px;font:12px Consolas,monospace"></textarea></div>
+          <p class="hint">ใช้จำนวนเต็มที่ไม่ติดลบ และชื่อผู้เล่น 1–64 ตัวอักษร การเปลี่ยนแปลงจะถูกบันทึกลง Supabase และ Audit Log สำรอง JSON เดิมก่อนแก้ไข</p>
           <div class="form-actions"><button id="cancelEdit" type="button" class="secondary">ยกเลิก</button><button id="saveEdit" type="submit">บันทึกข้อมูล</button></div>
         </form>
+      </section>
+    </div>
+
+
+    <div id="inventoryModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="inventoryTitle">
+      <section class="card">
+        <h2 id="inventoryTitle">จัดการ Inventory</h2>
+        <p class="muted">แก้ไข Inventory JSON ของผู้เล่นโดยตรง รูปแบบต้องคงตามโครงสร้างที่เกมใช้</p>
+        <input id="inventorySteamId" type="hidden">
+        <div class="field"><label for="inventoryJson">Inventory (JSON object)</label><textarea id="inventoryJson" rows="16" spellcheck="false" style="width:100%;background:var(--field);border:1px solid #454854;border-radius:9px;color:var(--text);padding:12px;font:12px Consolas,monospace"></textarea></div>
+        <p class="hint">แนะนำให้คัดลอกค่าเดิมเก็บไว้ก่อนบันทึก ห้ามใส่ Session Token หรือข้อมูลลับ</p>
+        <div class="form-actions"><button id="cancelInventory" type="button" class="secondary">ยกเลิก</button><button id="saveInventory" type="button">บันทึก Inventory</button></div>
+      </section>
+    </div>
+
+
+    <div id="inventoryModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="inventoryTitle">
+      <section class="card">
+        <h2 id="inventoryTitle">จัดการ Inventory</h2>
+        <p class="muted">แก้ไข Inventory JSON ของผู้เล่นโดยตรง รูปแบบต้องคงตามโครงสร้างที่เกมใช้</p>
+        <input id="inventorySteamId" type="hidden">
+        <div class="field"><label for="inventoryJson">Inventory (JSON object)</label><textarea id="inventoryJson" rows="16" spellcheck="false" style="width:100%;background:var(--field);border:1px solid #454854;border-radius:9px;color:var(--text);padding:12px;font:12px Consolas,monospace"></textarea></div>
+        <p class="hint">แนะนำให้คัดลอกค่าเดิมเก็บไว้ก่อนบันทึก ห้ามใส่ Session Token หรือข้อมูลลับ</p>
+        <div class="form-actions"><button id="cancelInventory" type="button" class="secondary">ยกเลิก</button><button id="saveInventory" type="button">บันทึก Inventory</button></div>
       </section>
     </div>
 
@@ -451,7 +481,9 @@
       tell('กำลังโหลดข้อมูล…');
       try {
         const endpoint = currentView === 'players' ? '/admin/api/players' : '/admin/api/item-usage';
-        const result = await api(`${endpoint}?page=${page}&q=${encodeURIComponent($('search').value.trim())}`);
+        const params = new URLSearchParams({ page: String(page), q: $('search').value.trim() });
+        if (currentView === 'players') { if ($('roleFilter').value) params.set('role', $('roleFilter').value); if ($('statusFilter').value) params.set('status', $('statusFilter').value); }
+        const result = await api(`${endpoint}?${params.toString()}`);
         const entries = currentView === 'players' ? result.players : result.events;
         currentPage = result.page;
         const columns = currentView === 'players'
@@ -503,6 +535,7 @@
             edit.className = 'secondary';
             edit.addEventListener('click', () => openEditPlayer(event));
             actions.append(edit);
+            const inventoryButton = document.createElement('button'); inventoryButton.textContent = 'Inventory'; inventoryButton.className = 'secondary'; inventoryButton.addEventListener('click', () => openInventory(event)); actions.append(inventoryButton);
           }
           const ban = document.createElement('button');
           ban.textContent = event.isBanned ? 'ปลดแบน' : 'แบน';
@@ -520,6 +553,11 @@
       $('editExperience').value = Number(player.experience ?? 0);
       $('editGold').value = Number(player.gold ?? 0);
       $('editGem').value = Number(player.gem ?? 0);
+      $('editCoin').value = Number(player.coin ?? 0);
+      $('editDisplayName').value = player.displayName || '';
+      $('editRole').value = player.role || 'survivor';
+      $('editWhitelist').value = String(player.isWhitelisted !== false);
+      $('editApiData').value = JSON.stringify(player.apiData || {}, null, 2);
       $('editModal').classList.remove('hidden');
       $('editLevel').focus();
     }
@@ -529,17 +567,25 @@
     $('editForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const steamId = $('editSteamId').value;
+      let apiData;
+      try { apiData = JSON.parse($('editApiData').value || '{}'); } catch { tell('ข้อมูลเกมขั้นสูง JSON ไม่ถูกต้อง'); return; }
+      if (!apiData || typeof apiData !== 'object' || Array.isArray(apiData)) { tell('ข้อมูลเกมขั้นสูงต้องเป็น JSON object'); return; }
       const payload = {
+        apiData,
         level: Number($('editLevel').value),
         experience: Number($('editExperience').value),
         gold: Number($('editGold').value),
-        gem: Number($('editGem').value)
+        gem: Number($('editGem').value),
+        coin: Number($('editCoin').value),
+        displayName: $('editDisplayName').value.trim(),
+        role: $('editRole').value.trim(),
+        isWhitelisted: $('editWhitelist').value === 'true'
       };
-      if (!steamId || Object.values(payload).some(value => !Number.isSafeInteger(value) || value < 0) || payload.level < 1) {
-        tell('ตรวจสอบค่า Level, EXP, Gold และ Gem ให้เป็นจำนวนเต็มที่ถูกต้องก่อนบันทึก');
+      if (!steamId || ['level','experience','gold','gem','coin'].some(key => !Number.isSafeInteger(payload[key]) || payload[key] < (key === 'level' ? 1 : 0)) || !payload.displayName || payload.displayName.length > 64 || !payload.role || payload.role.length > 40) {
+        tell('ตรวจสอบ Level/EXP/Gold/Gem/Coin, ชื่อผู้เล่น และ Role ก่อนบันทึก');
         return;
       }
-      if (!confirm(`ยืนยันบันทึกข้อมูล Level/EXP/Gold/Gem ของผู้เล่น ${steamId}?`)) return;
+      if (!confirm(`ยืนยันบันทึกข้อมูลผู้เล่นทั้งหมดของ ${steamId}?`)) return;
       const save = $('saveEdit'); save.disabled = true;
       try {
         await api(`/admin/api/players/${encodeURIComponent(steamId)}`, { method: 'PUT', body: JSON.stringify(payload) });
@@ -550,6 +596,88 @@
         tell(`บันทึกไม่สำเร็จ: ${error.message}`);
       } finally { save.disabled = false; }
     });
+
+    async function openInventory(player) {
+      try {
+        const data = await api(`/admin/api/players/${encodeURIComponent(player.steamId)}/inventory`);
+        $('inventorySteamId').value = player.steamId;
+        $('inventoryJson').value = JSON.stringify(data.inventory || {}, null, 2);
+        $('inventoryModal').classList.remove('hidden');
+        $('inventoryJson').focus();
+      } catch (error) { tell('โหลด Inventory ไม่สำเร็จ: ' + error.message); }
+    }
+    function closeInventory() { $('inventoryModal').classList.add('hidden'); }
+    $('cancelInventory').addEventListener('click', closeInventory);
+    $('inventoryModal').addEventListener('click', (event) => { if (event.target === $('inventoryModal')) closeInventory(); });
+    $('saveInventory').addEventListener('click', async () => {
+      const steamId = $('inventorySteamId').value;
+      let inventory;
+      try { inventory = JSON.parse($('inventoryJson').value); } catch { tell('Inventory JSON ไม่ถูกต้อง'); return; }
+      if (!inventory || typeof inventory !== 'object' || Array.isArray(inventory)) { tell('Inventory ต้องเป็น JSON object'); return; }
+      if (!confirm(`ยืนยันบันทึก Inventory ของ ${steamId}?`)) return;
+      const button = $('saveInventory'); button.disabled = true;
+      try { await api(`/admin/api/players/${encodeURIComponent(steamId)}/inventory`, { method: 'PUT', body: JSON.stringify({ inventory }) }); closeInventory(); tell('บันทึก Inventory และ Audit Log แล้ว', true); await loadPlayers(); }
+      catch (error) { tell('บันทึก Inventory ไม่สำเร็จ: ' + error.message); }
+      finally { button.disabled = false; }
+    });
+    async function loadPlayerAudit() {
+      const panel = $('playerAuditPanel'); const box = $('playerAuditRows'); panel.classList.remove('hidden'); box.replaceChildren();
+      try {
+        const result = await api('/admin/api/player-audit?page=1');
+        if (!result.audit?.length) { box.textContent = 'ยังไม่มีประวัติการแก้ไข'; return; }
+        for (const row of result.audit) {
+          const item = document.createElement('div'); item.className = 'host-audit-item';
+          const title = document.createElement('strong'); title.textContent = `${row.action} · ${row.steam_id} · ${new Date(row.changed_at).toLocaleString('th-TH')}`;
+          const detail = document.createElement('span'); detail.textContent = `ผู้ดูแล: ${row.actor || 'admin'} | ก่อน: ${JSON.stringify(row.before_state || {})} | หลัง: ${JSON.stringify(row.after_state || {})}`;
+          item.append(title, detail); box.append(item);
+        }
+      } catch (error) { box.textContent = 'โหลด Audit Log ไม่สำเร็จ: ' + error.message; }
+    }
+    $('refreshAudit').addEventListener('click', loadPlayerAudit);
+    $('closeAudit').addEventListener('click', () => $('playerAuditPanel').classList.add('hidden'));
+    $('roleFilter').addEventListener('change', () => loadPlayers(1));
+    $('statusFilter').addEventListener('change', () => loadPlayers(1));
+
+    async function openInventory(player) {
+      try {
+        const data = await api(`/admin/api/players/${encodeURIComponent(player.steamId)}/inventory`);
+        $('inventorySteamId').value = player.steamId;
+        $('inventoryJson').value = JSON.stringify(data.inventory || {}, null, 2);
+        $('inventoryModal').classList.remove('hidden');
+        $('inventoryJson').focus();
+      } catch (error) { tell('โหลด Inventory ไม่สำเร็จ: ' + error.message); }
+    }
+    function closeInventory() { $('inventoryModal').classList.add('hidden'); }
+    $('cancelInventory').addEventListener('click', closeInventory);
+    $('inventoryModal').addEventListener('click', (event) => { if (event.target === $('inventoryModal')) closeInventory(); });
+    $('saveInventory').addEventListener('click', async () => {
+      const steamId = $('inventorySteamId').value;
+      let inventory;
+      try { inventory = JSON.parse($('inventoryJson').value); } catch { tell('Inventory JSON ไม่ถูกต้อง'); return; }
+      if (!inventory || typeof inventory !== 'object' || Array.isArray(inventory)) { tell('Inventory ต้องเป็น JSON object'); return; }
+      if (!confirm(`ยืนยันบันทึก Inventory ของ ${steamId}?`)) return;
+      const button = $('saveInventory'); button.disabled = true;
+      try { await api(`/admin/api/players/${encodeURIComponent(steamId)}/inventory`, { method: 'PUT', body: JSON.stringify({ inventory }) }); closeInventory(); tell('บันทึก Inventory และ Audit Log แล้ว', true); await loadPlayers(); }
+      catch (error) { tell('บันทึก Inventory ไม่สำเร็จ: ' + error.message); }
+      finally { button.disabled = false; }
+    });
+    async function loadPlayerAudit() {
+      const panel = $('playerAuditPanel'); const box = $('playerAuditRows'); panel.classList.remove('hidden'); box.replaceChildren();
+      try {
+        const result = await api('/admin/api/player-audit?page=1');
+        if (!result.audit?.length) { box.textContent = 'ยังไม่มีประวัติการแก้ไข'; return; }
+        for (const row of result.audit) {
+          const item = document.createElement('div'); item.className = 'host-audit-item';
+          const title = document.createElement('strong'); title.textContent = `${row.action} · ${row.steam_id} · ${new Date(row.changed_at).toLocaleString('th-TH')}`;
+          const detail = document.createElement('span'); detail.textContent = `ผู้ดูแล: ${row.actor || 'admin'} | ก่อน: ${JSON.stringify(row.before_state || {})} | หลัง: ${JSON.stringify(row.after_state || {})}`;
+          item.append(title, detail); box.append(item);
+        }
+      } catch (error) { box.textContent = 'โหลด Audit Log ไม่สำเร็จ: ' + error.message; }
+    }
+    $('refreshAudit').addEventListener('click', loadPlayerAudit);
+    $('closeAudit').addEventListener('click', () => $('playerAuditPanel').classList.add('hidden'));
+    $('roleFilter').addEventListener('change', () => loadPlayers(1));
+    $('statusFilter').addEventListener('change', () => loadPlayers(1));
 
     async function loadLauncherStatus() {
       try {
