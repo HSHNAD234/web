@@ -3176,5 +3176,5 @@ app.post('/api/whitelist/approve', async (req, res) => {
 
 
 // Mount the game database routes after the Express app and middleware are initialized.
-const gameDatabaseRoutes = require("./src/routes/game-database");
+const gameDatabaseRoutes = require("./src/config/game-database");
 app.use("/api", gameDatabaseRoutes);
