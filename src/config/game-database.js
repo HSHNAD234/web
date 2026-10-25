@@ -2,6 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const supabase = require("../config/supabase");
+const supabase = require("./supabase");
 
 const STEAM_ID_PATTERN = /^[0-9]{17}$/;
 
