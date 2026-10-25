@@ -3020,6 +3020,55 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 start();
+// Account Info: return only the Steam ID linked to a Discord account.
+// Supabase credentials stay server-side; do not expose the full player row.
+const launcherAccountLookupAttempts = new Map();
+app.get('/api/launcher/account/:discordId', async (req, res) => {
+  try {
+    const discordId = String(req.params.discordId || '').trim();
+    if (!/^\d{17,20}$/.test(discordId)) {
+      return res.status(400).json({ error: 'Invalid Discord ID' });
+    }
+
+    // Lightweight per-IP rate limit to discourage bulk enumeration.
+    const ip = String(req.ip || req.socket?.remoteAddress || 'unknown');
+    const now = Date.now();
+    const prior = launcherAccountLookupAttempts.get(ip);
+    if (prior && now - prior.startedAt < 60_000 && prior.count >= 30) {
+      return res.status(429).json({ error: 'Too many account lookups; try again later' });
+    }
+    if (!prior || now - prior.startedAt >= 60_000) {
+      launcherAccountLookupAttempts.set(ip, { startedAt: now, count: 1 });
+    } else {
+      prior.count += 1;
+    }
+    if (launcherAccountLookupAttempts.size > 5000) {
+      for (const [key, value] of launcherAccountLookupAttempts) {
+        if (now - value.startedAt >= 60_000) launcherAccountLookupAttempts.delete(key);
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('players')
+      .select('steam_id')
+      .eq('discord_id', discordId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[launcher-account] Supabase lookup failed:', error.message);
+      return res.status(500).json({ error: 'Account lookup failed' });
+    }
+    if (!data || !/^\d{17}$/.test(String(data.steam_id || ''))) {
+      return res.status(404).json({ linked: false, steamId: null });
+    }
+    return res.status(200).json({ linked: true, steamId: String(data.steam_id) });
+  } catch (err) {
+    console.error('[launcher-account] Endpoint error:', err.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.post('/api/whitelist/approve', async (req, res) => {
   try {
     const suppliedSecret = req.get('x-whitelist-secret');
