@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>Player Admin</title>
+  <title>HSHO NAD DATABASE</title>
   <style>
     :root{
       color-scheme:dark;
@@ -170,12 +170,291 @@
     .host-audit-item span{display:block;color:var(--muted);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
     .api-path{font:12px Consolas,monospace;overflow-wrap:anywhere;color:var(--gold)}
 
+    /* ===== Button Theme Refresh ===== */
+    :root{
+      --btn-h:42px;
+      --btn-h-sm:34px;
+      --btn-radius:12px;
+      --ease-out:cubic-bezier(.22,1,.36,1);
+      --ease-spring:cubic-bezier(.34,1.56,.64,1);
+      --gold-soft:#f3e2b8;
+    }
+    button{
+      position:relative;
+      isolation:isolate;
+      overflow:hidden;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      min-height:var(--btn-h);
+      padding:0 20px;
+      border-radius:var(--btn-radius);
+      font-size:14px;
+      font-weight:700;
+      letter-spacing:.015em;
+      line-height:1;
+      color:#17130d;
+      background:linear-gradient(160deg,#f3e2b8 0%,#d8b57a 55%,#c29a5c 100%);
+      border:1px solid rgba(255,236,196,.55);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 6px 16px -8px rgba(216,181,122,.6),0 2px 4px rgba(0,0,0,.35);
+      transition:transform .3s var(--ease-spring),box-shadow .35s var(--ease-out),filter .2s ease,background .25s ease,border-color .25s ease,color .25s ease;
+    }
+    button::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      z-index:-1;
+      background:linear-gradient(105deg,transparent 28%,rgba(255,255,255,.5) 50%,transparent 72%);
+      transform:translateX(-120%);
+      transition:transform .75s var(--ease-out);
+      pointer-events:none;
+    }
+    button:hover{
+      transform:translateY(-2px);
+      filter:brightness(1.06);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 14px 28px -10px rgba(216,181,122,.7),0 4px 10px rgba(0,0,0,.4);
+    }
+    button:hover::before{transform:translateX(120%)}
+    button:active{
+      transform:translateY(0) scale(.97);
+      transition-duration:.08s;
+    }
+    button:focus-visible{
+      outline:2px solid var(--gold-soft);
+      outline-offset:3px;
+    }
+    button:disabled{
+      opacity:.42;
+      cursor:not-allowed;
+      transform:none;
+      filter:grayscale(.35);
+      box-shadow:none;
+    }
+    button:disabled::before{display:none}
+
+    button.secondary{
+      color:var(--text);
+      background:linear-gradient(160deg,#33363f,#22242b);
+      border:1px solid #4a4e5a;
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 2px 8px rgba(0,0,0,.35);
+    }
+    button.secondary::before{
+      background:linear-gradient(105deg,transparent 28%,rgba(216,181,122,.22) 50%,transparent 72%);
+    }
+    button.secondary:hover{
+      color:var(--gold-soft);
+      border-color:rgba(216,181,122,.8);
+      background:linear-gradient(160deg,#3a3d47,#25272e);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 12px 24px -10px rgba(216,181,122,.5),0 4px 10px rgba(0,0,0,.4);
+    }
+
+    button.danger,
+    #toggleLauncher.danger{
+      color:#fff4f1;
+      background:linear-gradient(160deg,#c04c54,#8f343b 60%,#6e2329);
+      border:1px solid #c86a70;
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 6px 16px -8px rgba(223,119,119,.6),0 2px 4px rgba(0,0,0,.35);
+    }
+    button.danger:hover,
+    #toggleLauncher.danger:hover{
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 14px 28px -10px rgba(223,119,119,.75),0 4px 10px rgba(0,0,0,.4);
+    }
+
+    /* View tabs: pill-like segmented look */
+    .view-tab{
+      min-width:140px;
+      border-radius:999px;
+      padding:0 22px;
+    }
+    .view-tab[aria-pressed="true"]{
+      color:#17130d;
+      background:linear-gradient(160deg,#f3e2b8,#d8b57a 60%,#c29a5c);
+      border-color:rgba(255,236,196,.7);
+      box-shadow:0 0 0 4px rgba(216,181,122,.12),0 8px 20px -8px rgba(216,181,122,.7);
+    }
+    .view-tab[aria-pressed="false"]{
+      color:var(--text);
+      background:linear-gradient(160deg,#33363f,#22242b);
+      border-color:#4a4e5a;
+    }
+
+    /* Proportions per context */
+    .actions button{
+      min-height:var(--btn-h-sm);
+      padding:0 14px;
+      font-size:13px;
+      border-radius:10px;
+    }
+    .toolbar button{min-width:96px}
+    .toolbar .view-tab{min-width:150px}
+    .status-controls button{min-width:160px}
+    .form-actions button{min-width:128px}
+    .form-actions{gap:12px}
+    .top button{min-width:130px}
+    .status-controls{gap:12px}
+    #toggleLauncher{min-width:160px}
+
+    /* Entrance animation */
+    @keyframes btnIn{
+      from{opacity:0;transform:translateY(8px) scale(.96)}
+      to{opacity:1;transform:none}
+    }
+    .top button,
+    .status-controls button,
+    .toolbar button,
+    .actions button,
+    .form-actions button{
+      animation:btnIn .55s var(--ease-out) backwards;
+    }
+    .toolbar button:nth-child(2){animation-delay:.05s}
+    .toolbar button:nth-child(3){animation-delay:.1s}
+    .toolbar button:nth-child(4){animation-delay:.15s}
+    .toolbar button:nth-child(5){animation-delay:.2s}
+    .toolbar button:nth-child(6){animation-delay:.25s}
+    .toolbar button:nth-child(7){animation-delay:.3s}
+
+    @media(max-width:720px){
+      button{min-height:40px;padding:0 16px}
+      .actions button{min-height:36px}
+      .toolbar button,.toolbar .view-tab{min-width:0;flex:1 1 auto}
+      .status-controls button,#toggleLauncher{width:100%;min-width:0}
+      .form-actions button{flex:1 1 0;min-width:0}
+    }
+    @media(prefers-reduced-motion:reduce){
+      button,button::before,.view-tab{animation:none!important;transition:none!important}
+      .flashlight,.dust span,.login::before,.login .mark,.login h1{animation:none!important}
+    }
+
+    /* ===== Login: Flashlight Theme ===== */
+    .flashlight{
+      display:none;
+      position:fixed;
+      inset:0;
+      z-index:5;
+      pointer-events:none;
+      background:
+        radial-gradient(circle 320px at var(--fx,50%) var(--fy,40%),
+          rgba(255,232,170,.13) 0%,
+          rgba(255,232,170,.04) 45%,
+          transparent 70%),
+        radial-gradient(circle 340px at var(--fx,50%) var(--fy,40%),
+          transparent 0%,
+          rgba(3,3,6,.55) 60%,
+          rgba(3,3,6,.9) 100%);
+      transition:background-position .05s linear;
+    }
+    body:has(#login:not(.hidden)) .flashlight{display:block}
+    body:has(#login:not(.hidden)){
+      background:radial-gradient(circle at 50% 0%,#2a2219 0,#0d0d11 55%,#07070a 100%) fixed;
+      overflow-x:hidden;
+    }
+    .dust{
+      display:none;
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      z-index:6;
+      overflow:hidden;
+    }
+    body:has(#login:not(.hidden)) .dust{display:block}
+    .dust span{
+      position:absolute;
+      bottom:-10px;
+      width:var(--s,3px);
+      height:var(--s,3px);
+      border-radius:50%;
+      background:#ffe7b0;
+      opacity:0;
+      box-shadow:0 0 8px #ffe0a0;
+      animation:dustRise var(--d,14s) linear infinite;
+      animation-delay:var(--delay,0s);
+      left:var(--x,50%);
+    }
+    @keyframes dustRise{
+      0%{transform:translate(0,0);opacity:0}
+      10%{opacity:.7}
+      50%{transform:translate(var(--drift,20px),-50vh);opacity:.5}
+      100%{transform:translate(calc(var(--drift,20px)*-1),-110vh);opacity:0}
+    }
+
+    #login.login{
+      position:relative;
+      z-index:7;
+      max-width:430px;
+      margin:12vh auto 24px;
+      padding:34px 30px 30px;
+      border-radius:22px;
+      text-align:center;
+      background:linear-gradient(170deg,rgba(38,35,30,.92),rgba(16,16,20,.96));
+      border:1px solid rgba(216,181,122,.22);
+      box-shadow:0 30px 80px -20px rgba(0,0,0,.9),0 0 60px -10px rgba(216,181,122,.18),inset 0 1px 0 rgba(255,235,190,.12);
+      animation:loginRise .9s var(--ease-out) both;
+    }
+    #login.login::before{
+      content:"";
+      position:absolute;
+      inset:-1px;
+      border-radius:inherit;
+      padding:1px;
+      background:conic-gradient(from var(--spin,0deg),transparent 0deg,#f3e2b8 40deg,transparent 90deg,transparent 360deg);
+      -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+      -webkit-mask-composite:xor;
+      mask-composite:exclude;
+      pointer-events:none;
+      opacity:.55;
+      animation:spinBorder 6s linear infinite;
+    }
+    @property --spin{syntax:'<angle>';inherits:false;initial-value:0deg}
+    @keyframes spinBorder{to{--spin:360deg}}
+    @keyframes loginRise{
+      from{opacity:0;transform:translateY(24px) scale(.97)}
+      to{opacity:1;transform:none}
+    }
+    #login .brand{flex-direction:column;justify-content:center;gap:16px}
+    #login .mark{
+      width:64px;height:64px;flex-basis:64px;border-radius:20px;font-size:26px;
+      animation:markGlow 3.2s ease-in-out infinite;
+    }
+    @keyframes markGlow{
+      0%,100%{box-shadow:0 0 0 0 rgba(243,226,184,.0),0 10px 30px #d8b57a30}
+      50%{box-shadow:0 0 0 10px rgba(243,226,184,.08),0 12px 42px #f3e2b870}
+    }
+    #login .brand h1{
+      font-size:26px;
+      background:linear-gradient(100deg,#f3e2b8 0%,#fff 35%,#d8b57a 50%,#f3e2b8 65%);
+      background-size:250% 100%;
+      -webkit-background-clip:text;
+      background-clip:text;
+      color:transparent;
+      animation:shimmer 5s linear infinite;
+    }
+    @keyframes shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
+    #login .brand p{margin-top:6px;letter-spacing:.02em}
+    #login .field{text-align:left}
+    #login .field input{
+      background:rgba(8,8,11,.85);
+      padding:13px 14px;
+      transition:border-color .25s ease,box-shadow .3s ease,transform .25s ease;
+    }
+    #login .field input:focus{transform:translateY(-1px)}
+    #login form > button[type="submit"]{
+      min-height:46px;
+      font-size:15px;
+      letter-spacing:.04em;
+      margin-top:10px;
+    }
+    #login #loginNotice{text-align:center;min-height:20px}
+    @media(max-width:720px){
+      #login.login{margin:7vh auto 20px;padding:26px 20px 22px}
+    }
+
   </style>
 </head>
 <body>
   <main class="wrap">
     <section id="login" class="card login">
-      <div class="brand"><div class="mark">P</div><div><h1>Player Admin</h1><p>จัดการข้อมูลผู้เล่นในฐานข้อมูลของคุณ</p></div></div>
+      <div class="brand"><div class="mark">N</div><div><h1>HSHO NAD DATABASE</h1><p>จัดการข้อมูลผู้เล่นในฐานข้อมูลของคุณ</p></div></div>
       <form id="loginForm">
         <div class="field"><label for="password">รหัสผ่านผู้ดูแล</label><input id="password" type="password" autocomplete="current-password" required></div>
         <button type="submit" style="width:100%">เข้าสู่ระบบ</button><p id="loginNotice" class="notice" role="status"></p>
@@ -183,7 +462,7 @@
     </section>
 
     <section id="dashboard" class="hidden">
-      <header class="top"><div class="brand"><div class="mark">H</div><div><h1>HSHO Player Admin</h1><p>ผู้เล่น Whitelist และประวัติการใช้ไอเท็ม</p></div></div><button id="logout" class="secondary">ออกจากระบบ</button></header>
+      <header class="top"><div class="brand"><div class="mark">N</div><div><h1>HSHO NAD DATABASE</h1><p>ผู้เล่น Whitelist และประวัติการใช้ไอเท็ม</p></div></div><button id="logout" class="secondary">ออกจากระบบ</button></header>
       <div class="card status-card"><div><h2>สถานะ Launcher / เซิร์ฟเวอร์</h2><p>เมื่อปิด Launcher ของผู้เล่นจะแสดงหน้า Server is closed พร้อมเวลานับถอยหลัง</p><div class="status-pill"><span id="statusDot" class="dot"></span><span id="statusText">กำลังอ่านสถานะ…</span></div></div><div class="status-controls"><label class="muted" for="closeMinutes">ปิดนาน (นาที)</label><input id="closeMinutes" type="number" min="1" max="10080" value="60" style="width:95px;background:#101116;border:1px solid #454854;border-radius:9px;color:var(--text);padding:10px"><button id="toggleLauncher">กำลังโหลด…</button></div></div>
       <div class="toolbar admin-main-tabs" role="group" aria-label="ส่วนจัดการ">
         <button id="playersPanelTab" class="view-tab" aria-pressed="true">ข้อมูลผู้เล่น</button>
@@ -756,6 +1035,33 @@
     $('search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => loadPlayers(1), 250); });
     $('previousPage').addEventListener('click', () => { if (currentPage > 1) loadPlayers(currentPage - 1); });
     $('nextPage').addEventListener('click', () => loadPlayers(currentPage + 1));
+
+    // ----- Login flashlight -----
+    const flashlight = document.createElement('div');
+    flashlight.className = 'flashlight';
+    const dust = document.createElement('div');
+    dust.className = 'dust';
+    for (let i = 0; i < 22; i++) {
+      const p = document.createElement('span');
+      p.style.setProperty('--x', (Math.random() * 100).toFixed(1) + '%');
+      p.style.setProperty('--s', (2 + Math.random() * 3).toFixed(1) + 'px');
+      p.style.setProperty('--d', (12 + Math.random() * 12).toFixed(1) + 's');
+      p.style.setProperty('--delay', (-Math.random() * 20).toFixed(1) + 's');
+      p.style.setProperty('--drift', (Math.random() * 60 - 30).toFixed(0) + 'px');
+      dust.appendChild(p);
+    }
+    document.body.append(flashlight, dust);
+    const setLight = (x, y) => {
+      flashlight.style.setProperty('--fx', x + 'px');
+      flashlight.style.setProperty('--fy', y + 'px');
+    };
+    setLight(window.innerWidth / 2, window.innerHeight * 0.4);
+    let lightRaf = 0;
+    window.addEventListener('pointermove', (event) => {
+      cancelAnimationFrame(lightRaf);
+      lightRaf = requestAnimationFrame(() => setLight(event.clientX, event.clientY));
+    }, { passive: true });
+    window.addEventListener('resize', () => setLight(window.innerWidth / 2, window.innerHeight * 0.4));
 
     (async () => {
       try { const data = await api('/admin/api/session'); showDashboard(data.csrf); }
