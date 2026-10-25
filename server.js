@@ -2418,6 +2418,9 @@ function adminError(res, error) {
 }
 function playerForAdmin(row) {
   const data = row.api_data || {};
+  const safeApiData = { ...data };
+  delete safeApiData.auth;
+  delete safeApiData.session_token;
   return {
     steamId: row.steam_id,
     displayName: row.display_name || data.profile?.displayName || 'Player',
@@ -2427,11 +2430,28 @@ function playerForAdmin(row) {
     bannedUntil: row.banned_until || null,
     banReason: row.ban_reason || '',
     isWhitelisted: row.is_whitelisted !== false,
-    level: row.level || 1,
-    experience: row.experience || 0,
-    gold: row.gold || 0,
-    gem: row.gem || 0,
+    level: row.level ?? 1,
+    experience: row.experience ?? 0,
+    gold: row.gold ?? 0,
+    gem: row.gem ?? 0,
+    coin: row.coin ?? data.coin ?? 0,
+    role: row.role || data.role || 'survivor',
+    isOnline: Boolean(row.is_online ?? data.isOnline),
+    inventory: row.inventory || data.inventory || {},
+    apiData: safeApiData,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
   };
+}
+async function writePlayerAudit({ steamId, action, beforeState, afterState, actor = 'admin' }) {
+  try {
+    const { error } = await supabase.from('player_admin_audit').insert({
+      steam_id: steamId, actor, action,
+      before_state: beforeState || {}, after_state: afterState || {},
+      changed_at: new Date().toISOString()
+    });
+    if (error) console.error('[player-audit] failed:', error.message);
+  } catch (error) { console.error('[player-audit] failed:', error.message); }
 }
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.get('/admin/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
@@ -2462,11 +2482,18 @@ app.get('/admin/api/players', requireAdmin, async (req, res) => {
   try {
     const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1));
     const pageSize = 50; const q = String(req.query.q || '').trim().slice(0, 100);
-    let query = supabase.from('players').select('steam_id,display_name,discord_id,discord_tag,is_whitelisted,is_banned,banned_until,ban_reason,level,experience,gold,gem,api_data,created_at,updated_at', { count: 'exact' });
+    let query = supabase.from('players').select('steam_id,display_name,discord_id,discord_tag,is_whitelisted,is_banned,banned_until,ban_reason,level,experience,gold,gem,coin,role,is_online,inventory,api_data,created_at,updated_at', { count: 'exact' });
     if (q) {
       const safe = q.replace(/[,%()]/g, ' ');
       query = query.or(`steam_id.ilike.%${safe}%,display_name.ilike.%${safe}%,discord_tag.ilike.%${safe}%,discord_id.ilike.%${safe}%`);
     }
+    const role = String(req.query.role || '').trim().slice(0, 40);
+    const status = String(req.query.status || '').trim();
+    if (role) query = query.eq('role', role);
+    if (status === 'banned') query = query.eq('is_banned', true);
+    if (status === 'active') query = query.eq('is_banned', false);
+    if (status === 'whitelisted') query = query.eq('is_whitelisted', true);
+    if (status === 'not-whitelisted') query = query.eq('is_whitelisted', false);
     const { data, error, count } = await query.order('updated_at', { ascending: false }).range((page-1)*pageSize, page*pageSize-1);
     if (error) throw error;
     const total = count || 0;
@@ -2476,38 +2503,94 @@ app.get('/admin/api/players', requireAdmin, async (req, res) => {
 app.put('/admin/api/players/:steamId', requireAdmin, async (req, res) => {
   try {
     const steamId = String(req.params.steamId || '');
-    if (!/^\d{17}$/.test(steamId)) {
-      return res.status(400).json({ message: 'Steam ID ต้องเป็นตัวเลข 17 หลัก' });
-    }
-
-    const allowed = ['level', 'experience', 'gold', 'gem'];
-    const updates = {};
-    for (const field of allowed) {
-      const value = req.body?.[field];
-      if (!Number.isSafeInteger(value) || value < 0 || value > 2147483647) {
-        return res.status(400).json({ message: field + ' ต้องเป็นจำนวนเต็มตั้งแต่ 0 ถึง 2147483647' });
-      }
-      updates[field] = value;
-    }
-
-    const { data: existing, error: readError } = await supabase
-      .from('players')
-      .select('steam_id,api_data')
-      .eq('steam_id', steamId)
-      .maybeSingle();
+    if (!/^\d{17}$/.test(steamId)) return res.status(400).json({ message: 'Steam ID ต้องเป็นตัวเลข 17 หลัก' });
+    const { data: existing, error: readError } = await supabase.from('players').select('*').eq('steam_id', steamId).maybeSingle();
     if (readError) throw readError;
     if (!existing) return res.status(404).json({ message: 'ไม่พบผู้เล่น' });
-
-    updates.updated_at = new Date().toISOString();
-    const { data, error } = await supabase
-      .from('players')
-      .update(updates)
-      .eq('steam_id', steamId)
-      .select('steam_id,level,experience,gold,gem,updated_at')
-      .single();
+    const body = req.body || {};
+    const updates = { updated_at: new Date().toISOString() };
+    const numericFields = ['level', 'experience', 'gold', 'gem', 'coin'];
+    for (const field of numericFields) {
+      if (body[field] === undefined) continue;
+      const min = field === 'level' ? 1 : 0;
+      if (!Number.isSafeInteger(body[field]) || body[field] < min || body[field] > 2147483647)
+        return res.status(400).json({ message: `${field} ต้องเป็นจำนวนเต็มตั้งแต่ ${min} ถึง 2147483647` });
+      updates[field] = body[field];
+    }
+    if (body.displayName !== undefined) {
+      const name = String(body.displayName).trim();
+      if (!name || name.length > 64) return res.status(400).json({ message: 'ชื่อผู้เล่นต้องมี 1–64 ตัวอักษร' });
+      updates.display_name = name;
+    }
+    if (body.role !== undefined) {
+      const role = String(body.role).trim();
+      if (!role || role.length > 40) return res.status(400).json({ message: 'Role ต้องมี 1–40 ตัวอักษร' });
+      updates.role = role;
+    }
+    if (body.isWhitelisted !== undefined) {
+      if (typeof body.isWhitelisted !== 'boolean') return res.status(400).json({ message: 'isWhitelisted ต้องเป็น true หรือ false' });
+      updates.is_whitelisted = body.isWhitelisted;
+    }
+    const oldApi = existing.api_data || {};
+    const newApi = { ...oldApi };
+    if (body.apiData !== undefined) {
+      if (!body.apiData || typeof body.apiData !== 'object' || Array.isArray(body.apiData)) return res.status(400).json({ message: 'ข้อมูลเกมขั้นสูงต้องเป็น JSON object' });
+      const apiData = { ...body.apiData };
+      delete apiData.auth; delete apiData.session_token;
+      Object.assign(newApi, apiData);
+    }
+    // Explicit admin form fields win over advanced JSON so values remain synchronized.
+    if (body.displayName !== undefined) newApi.profile = { ...(newApi.profile || oldApi.profile || {}), displayName: updates.display_name };
+    if (body.role !== undefined) newApi.role = updates.role;
+    if (body.coin !== undefined) newApi.coin = updates.coin;
+    newApi.auth = oldApi.auth; newApi.session_token = oldApi.session_token;
+    if (body.displayName !== undefined || body.role !== undefined || body.coin !== undefined || body.apiData !== undefined) updates.api_data = newApi;
+    const beforeState = { displayName: existing.display_name, level: existing.level, experience: existing.experience, gold: existing.gold, gem: existing.gem, coin: existing.coin, role: existing.role, isWhitelisted: existing.is_whitelisted, api_data: existing.api_data };
+    const { data, error } = await supabase.from('players').update(updates).eq('steam_id', steamId).select('*').single();
     if (error) throw error;
-
-    res.json({ ok: true, player: data });
+    await writePlayerAudit({ steamId, action: 'player.update', beforeState, afterState: { displayName: data.display_name, level: data.level, experience: data.experience, gold: data.gold, gem: data.gem, coin: data.coin, role: data.role, isWhitelisted: data.is_whitelisted, api_data: data.api_data } });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, player: playerForAdmin(data) });
+  } catch (e) { adminError(res, e); }
+});
+app.get('/admin/api/players/:steamId/inventory', requireAdmin, async (req, res) => {
+  try {
+    const steamId = String(req.params.steamId || '');
+    if (!/^\d{17}$/.test(steamId)) return res.status(400).json({ message: 'Steam ID ต้องเป็นตัวเลข 17 หลัก' });
+    const { data, error } = await supabase.from('players').select('steam_id,inventory,api_data').eq('steam_id', steamId).maybeSingle();
+    if (error) throw error;
+    if (!data) return res.status(404).json({ message: 'ไม่พบผู้เล่น' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ steamId, inventory: data.inventory && Object.keys(data.inventory).length ? data.inventory : (data.api_data?.inventory || {}) });
+  } catch (e) { adminError(res, e); }
+});
+app.put('/admin/api/players/:steamId/inventory', requireAdmin, async (req, res) => {
+  try {
+    const steamId = String(req.params.steamId || '');
+    if (!/^\d{17}$/.test(steamId)) return res.status(400).json({ message: 'Steam ID ต้องเป็นตัวเลข 17 หลัก' });
+    const inventory = req.body?.inventory;
+    if (!inventory || typeof inventory !== 'object' || Array.isArray(inventory)) return res.status(400).json({ message: 'Inventory ต้องเป็น JSON object' });
+    if (Buffer.byteLength(JSON.stringify(inventory), 'utf8') > 200000) return res.status(413).json({ message: 'Inventory ใหญ่เกินไป (จำกัด 200 KB)' });
+    const { data: existing, error: readError } = await supabase.from('players').select('steam_id,inventory,api_data').eq('steam_id', steamId).maybeSingle();
+    if (readError) throw readError;
+    if (!existing) return res.status(404).json({ message: 'ไม่พบผู้เล่น' });
+    const oldInventory = existing.inventory && Object.keys(existing.inventory).length ? existing.inventory : (existing.api_data?.inventory || {});
+    const apiData = { ...(existing.api_data || {}), inventory };
+    const { data, error } = await supabase.from('players').update({ inventory, api_data: apiData, updated_at: new Date().toISOString() }).eq('steam_id', steamId).select('steam_id,inventory,api_data').single();
+    if (error) throw error;
+    await writePlayerAudit({ steamId, action: 'inventory.update', beforeState: { inventory: oldInventory }, afterState: { inventory } });
+    res.json({ ok: true, inventory: data.inventory || data.api_data?.inventory || {} });
+  } catch (e) { adminError(res, e); }
+});
+app.get('/admin/api/player-audit', requireAdmin, async (req, res) => {
+  try {
+    const page = Math.max(1, Math.min(10000, Number.parseInt(req.query.page, 10) || 1));
+    const pageSize = 50;
+    const { data, error, count } = await supabase.from('player_admin_audit').select('id,steam_id,actor,action,changed_at,before_state,after_state', { count: 'exact' }).order('id', { ascending: false }).range((page-1)*pageSize, page*pageSize-1);
+    if (error) throw error;
+    const total = count || 0;
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ audit: data || [], page, pageSize, total, hasMore: page*pageSize < total });
   } catch (e) { adminError(res, e); }
 });
 app.get('/admin/api/item-usage', requireAdmin, async (req, res) => {
@@ -2535,7 +2618,7 @@ app.put('/admin/api/players/:steamId/ban', requireAdmin, async (req, res) => {
     const reason = String(req.body?.reason || '').slice(0, 500);
     const apiData = { ...(existing.api_data || {}), banStatus: { permanentBanned: permanent, bannedUntil, reason } };
     const { error } = await supabase.from('players').update({ is_banned:true, banned_until:bannedUntil, ban_reason:reason || null, api_data:apiData, updated_at:new Date().toISOString() }).eq('steam_id', steamId);
-    if (error) throw error; res.json({ ok:true });
+    if (error) throw error; await writePlayerAudit({ steamId, action: 'player.ban', beforeState: { isBanned: false }, afterState: { isBanned: true, bannedUntil, reason } }); res.json({ ok:true });
   } catch (e) { adminError(res, e); }
 });
 app.put('/admin/api/players/:steamId/unban', requireAdmin, async (req, res) => {
@@ -2546,7 +2629,7 @@ app.put('/admin/api/players/:steamId/unban', requireAdmin, async (req, res) => {
     if (readError) throw readError; if (!existing) return res.status(404).json({ message: 'ไม่พบผู้เล่น' });
     const apiData = { ...(existing.api_data || {}), banStatus:null };
     const { error } = await supabase.from('players').update({ is_banned:false, banned_until:null, ban_reason:null, api_data:apiData, updated_at:new Date().toISOString() }).eq('steam_id', steamId);
-    if (error) throw error; res.json({ ok:true });
+    if (error) throw error; await writePlayerAudit({ steamId, action: 'player.unban', beforeState: { isBanned: true }, afterState: { isBanned: false } }); res.json({ ok:true });
   } catch (e) { adminError(res, e); }
 });
 app.get('/admin/api/launcher', requireAdmin, async (req, res) => {
@@ -3088,8 +3171,10 @@ app.post('/api/whitelist/approve', async (req, res) => {
   } catch (err) {
     console.error('Whitelist endpoint error:', err);
     return res.status(500).json({ error: 'Internal server error' });
-
-    const gameDatabaseRoutes = require("./src/routes/game-database");
-app.use("/api", gameDatabaseRoutes);
   }
 });
+
+
+// Mount the game database routes after the Express app and middleware are initialized.
+const gameDatabaseRoutes = require("./src/routes/game-database");
+app.use("/api", gameDatabaseRoutes);
