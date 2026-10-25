@@ -564,9 +564,6 @@
       } catch (error) { $('statusText').textContent = error.message; $('toggleLauncher').disabled = true; }
     }
     async function banPlayer(player) {
-      const discordId = prompt(`ยืนยัน Discord ID ของผู้เล่น ${player.displayName || player.steamId} ก่อนแบน\nDiscord ID ที่บันทึกไว้: ${player.discordId || 'ไม่มีข้อมูล'}`);
-      if (discordId === null) return;
-      if (!/^\d{17,20}$/.test(discordId.trim())) { tell('Discord ID ไม่ถูกต้อง หรือผู้เล่นยังไม่มี Discord ID ในฐานข้อมูล'); return; }
       const input = prompt(`แบน ${player.displayName || player.steamId}: ใส่จำนวนนาที หรือพิมพ์ "ถาวร"`);
       if (input === null) return;
       const value = input.trim().toLowerCase();
@@ -576,7 +573,7 @@
       const reason = prompt('เหตุผลการแบน (เว้นว่างได้)') || '';
       if (!confirm(permanent ? 'ยืนยันแบนผู้เล่นถาวร?' : `ยืนยันแบนผู้เล่น ${minutes} นาที?`)) return;
       try {
-        await api(`/admin/api/players/${encodeURIComponent(player.steamId)}/ban`, { method: 'PUT', body: JSON.stringify({ permanent, minutes, reason, discordId: discordId.trim() }) });
+        await api(`/admin/api/players/${encodeURIComponent(player.steamId)}/ban`, { method: 'PUT', body: JSON.stringify({ permanent, minutes, reason }) });
         tell('แบนผู้เล่นแล้ว', true); await loadPlayers();
       } catch (error) { tell(error.message); }
     }
