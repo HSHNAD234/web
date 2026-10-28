@@ -1,21 +1,23 @@
+async function findSteamIdByDiscord(discordId) {
+  const id = String(discordId ?? "").trim();
 
-const { createClient } = require("@supabase/supabase-js");
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error(
-    "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY"
-  );
-}
-
-const supabase = createClient(supabaseUrl, serviceRoleKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-    detectSessionInUrl: false
+  if (!id) {
+    throw new Error("Missing Discord ID");
   }
-});
 
-module.exports = supabase;
+  const { data, error } = await supabase
+    .from("players")
+    .select("steam_id, discord_id, discord_tag")
+    .eq("discord_id", id)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return data;
+}
