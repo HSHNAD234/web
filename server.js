@@ -3179,5 +3179,5 @@ app.post('/api/whitelist/approve', async (req, res) => {
 app.use("/api", gameDatabaseRoutes);
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
