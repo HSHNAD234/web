@@ -2371,6 +2371,18 @@ app.disable('x-powered-by');
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
+// Root and lightweight liveness endpoint. Opening the service URL should not
+// produce Express' default "Cannot GET /" page; this does not replace API auth.
+app.get('/', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ service: 'HSHONAD Game Backend', status: 'online', apiPrefix: '/api',
+    callbackEndpoint: '/live/player/gameplay/callback', timestamp: new Date().toISOString() });
+});
+app.get('/healthz', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString(), uptimeSeconds: Math.floor(process.uptime()) });
+});
+
 // Admin dashboard API (shares the same Supabase project as the game API).
 const crypto = require('crypto');
 const path = require('path');
