@@ -1,4 +1,4 @@
-// HSHO API — single-file bundle (src/ and data/ embedded)
+app.listen// HSHO API — single-file bundle (src/ and data/ embedded)
 // Generated from project source. Keep package.json and .env outside this file.
 require('dotenv').config();
 const express = require('express');
@@ -3013,6 +3013,30 @@ async function start() {
 
     console.log('Supabase connected and reachable');
 
+    const serverInfoData = {
+  correctversion: true,
+  serverVersion: "1.0.6.0",
+  ServerDevVersion: "0.0.0.1",
+  IsOnline: true,
+  IsDevOnline: false,
+  __v: 0
+};
+
+app.get('/api/server-info', (req, res) => {
+  try {
+    res.status(200).json({
+      success: true,
+      data: serverInfoData
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch server info",
+      error: error.message
+    });
+  }
+});
+
     app.listen(config.port, () => {
       console.log('Server running on port ' + config.port);
       console.log('Environment: ' + config.env);
@@ -3153,4 +3177,7 @@ app.post('/api/whitelist/approve', async (req, res) => {
 
   const gameDatabaseRoutes = require("./src/routes/game-database");
 app.use("/api", gameDatabaseRoutes);
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
