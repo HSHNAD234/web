@@ -3126,6 +3126,7 @@ app.post('/api/whitelist/approve', async (req, res) => {
     }
 });
 
+const PORT = process.env.PORT || 3000;
 const gameDatabaseRoutes = require("./src/config/game-database");
 app.use("/api", gameDatabaseRoutes);
 
