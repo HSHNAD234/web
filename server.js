@@ -3126,7 +3126,7 @@ app.post('/api/whitelist/approve', async (req, res) => {
     }
 });
 
-const gameDatabaseRoutes = require("./src/routes/game-database");
+const gameDatabaseRoutes = require("./src/config/game-database");
 app.use("/api", gameDatabaseRoutes);
 
 app.listen(PORT, () => {
